@@ -1,0 +1,58 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      VITE_GEMINI_API_KEY: ${VITE_GEMINI_API_KEY:-}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      ATLANTEAN_SESSION_SECRET: ${ATLANTEAN_SESSION_SECRET:-}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
+    ports:
+      - "5001:5001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    environment:
+      VITE_ATLANTEAN_PROXY_TARGET: http://backend:5001
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - node_modules_cache:/app/node_modules
+    command: sh -c "npm install --legacy-peer-deps && npm run dev -- --host 0.0.0.0 --port 3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  node_modules_cache:

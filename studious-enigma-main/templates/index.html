@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atlantean Intelligence Core - Interactive Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: #fff;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d4ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .subtitle {
+            color: #aaa;
+            font-size: 1.1em;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .card h2 {
+            margin-bottom: 15px;
+            color: #00d4ff;
+            font-size: 1.3em;
+        }
+        
+        .stat {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .stat:last-child {
+            border-bottom: none;
+        }
+        
+        .stat-value {
+            font-weight: bold;
+            color: #00ff88;
+        }
+        
+        canvas {
+            width: 100%;
+            height: 300px;
+            border-radius: 5px;
+            background: rgba(0, 0, 0, 0.3);
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+        
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            background: linear-gradient(135deg, #00d4ff, #00ff88);
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: scale(1.05);
+        }
+        
+        button:active {
+            transform: scale(0.95);
+        }
+        
+        button.danger {
+            background: linear-gradient(135deg, #ff0055, #ff7700);
+            color: #fff;
+        }
+        
+        input, textarea {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 5px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            font-family: inherit;
+        }
+        
+        .results {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        
+        .result-item {
+            padding: 10px;
+            margin: 5px 0;
+            background: rgba(0, 255, 136, 0.1);
+            border-left: 3px solid #00ff88;
+            border-radius: 3px;
+        }
+        
+        .heatmap-container {
+            position: relative;
+            margin: 15px 0;
+        }
+        
+        .legend {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #aaa;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            background: rgba(0, 212, 255, 0.2);
+            border-radius: 3px;
+            font-size: 0.85em;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚡ Atlantean Intelligence Core</h1>
+            <p class="subtitle">Interactive Field Dynamics Visualization</p>
+            <p class="subtitle" style="font-size: 0.9em; margin-top: 5px;">
+                Intelligence lives in fields • LLMs are stateless • User-owned AI
+            </p>
+        </header>
+
+        <div class="grid">
+            <!-- System Status -->
+            <div class="card">
+                <h2>🔧 System Status</h2>
+                <div class="stat">
+                    <span>Version</span>
+                    <span class="stat-value" id="version">0</span>
+                </div>
+                <div class="stat">
+                    <span>Device ID</span>
+                    <span class="stat-value" id="device-id">-</span>
+                </div>
+                <div class="stat">
+                    <span>Learning Capacity</span>
+                    <span class="stat-value" id="capacity">0.00</span>
+                </div>
+                <div class="stat">
+                    <span>Cold Items</span>
+                    <span class="stat-value" id="cold-items">0</span>
+                </div>
+                <div class="stat">
+                    <span>Identity</span>
+                    <span class="stat-value" id="fingerprint" style="font-size: 0.8em;">-</span>
+                </div>
+            </div>
+
+            <!-- Field Statistics -->
+            <div class="card">
+                <h2>📊 Field Statistics</h2>
+                <div class="stat">
+                    <span>φ₁ (Decision) Mean</span>
+                    <span class="stat-value" id="phi1-mean">0.00</span>
+                </div>
+                <div class="stat">
+                    <span>φ₅ (Plasticity) Mean</span>
+                    <span class="stat-value" id="phi5-mean">0.00</span>
+                </div>
+                <div class="stat">
+                    <span>Φ (Global Meaning)</span>
+                    <span class="stat-value" id="phi-global">0.00</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <!-- φ₁ Excitability Field -->
+            <div class="card">
+                <h2>🔥 φ₁ - Excitability Field <span class="badge">Decision Topology</span></h2>
+                <div class="heatmap-container">
+                    <canvas id="phi1-canvas"></canvas>
+                </div>
+                <div class="legend">
+                    <span>← Low Activation</span>
+                    <span>High Activation →</span>
+                </div>
+            </div>
+
+            <!-- φ₅ Plasticity Field -->
+            <div class="card">
+                <h2>🧠 φ₅ - Plasticity Field <span class="badge">Learning Capacity</span></h2>
+                <div class="heatmap-container">
+                    <canvas id="phi5-canvas"></canvas>
+                </div>
+                <div class="legend">
+                    <span>← Fixed Patterns</span>
+                    <span>High Plasticity →</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <!-- Learning Controls -->
+            <div class="card">
+                <h2>🎓 Learning Signals</h2>
+                <p style="color: #aaa; margin-bottom: 15px;">Apply signals to modify intelligence fields</p>
+                
+                <div class="controls">
+                    <button onclick="applyLearning(0.8)">Strong Reinforcement (+0.8)</button>
+                    <button onclick="applyLearning(0.3)">Mild Reinforcement (+0.3)</button>
+                    <button onclick="applyLearning(-0.3)">Mild Weakening (-0.3)</button>
+                    <button onclick="applyContradiction()" class="danger">Contradiction Signal</button>
+                </div>
+                
+                <p style="margin-top: 15px; font-size: 0.9em; color: #aaa;">
+                    ℹ️ Learning modifies fields, NOT the LLM. Intelligence persists across sessions.
+                </p>
+            </div>
+
+            <!-- Memory Operations -->
+            <div class="card">
+                <h2>💾 Memory Operations</h2>
+                
+                <h3 style="margin-top: 10px; color: #00ff88; font-size: 1em;">Ingest Content</h3>
+                <textarea id="ingest-content" placeholder="Enter content to store..." rows="2"></textarea>
+                <input type="range" id="relevance" min="0" max="1" step="0.1" value="0.5">
+                <span style="font-size: 0.9em; color: #aaa;">Relevance: <span id="relevance-value">0.5</span></span>
+                <button onclick="ingestContent()" style="width: 100%; margin-top: 10px;">Store in Cold Memory</button>
+                
+                <h3 style="margin-top: 20px; color: #00ff88; font-size: 1em;">Recall</h3>
+                <input type="text" id="recall-query" placeholder="Query memory...">
+                <button onclick="recallMemory()" style="width: 100%; margin-top: 5px;">Search</button>
+                
+                <div id="recall-results" class="results"></div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <!-- Device Sync -->
+            <div class="card">
+                <h2>🔄 Multi-Device Sync</h2>
+                <p style="color: #aaa; margin-bottom: 15px;">Test conflict-free merging</p>
+                
+                <button onclick="createDevice()">Create Virtual Device</button>
+                <button onclick="syncDevices()">Merge with Virtual Device</button>
+                
+                <div id="sync-status" style="margin-top: 15px; font-size: 0.9em; color: #aaa;"></div>
+            </div>
+
+            <!-- System Controls -->
+            <div class="card">
+                <h2>⚙️ System Controls</h2>
+                
+                <div class="controls">
+                    <button onclick="refreshData()">Refresh Data</button>
+                    <button onclick="resetSystem()" class="danger">Reset System</button>
+                </div>
+                
+                <p style="margin-top: 15px; font-size: 0.85em; color: #aaa;">
+                    <strong>Core Principles:</strong><br>
+                    • Intelligence in hot memory (fields)<br>
+                    • Content in cold memory (replaceable)<br>
+                    • LLMs are stateless translators<br>
+                    • Learning via signals, not prompts
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let updateInterval;
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshData();
+            updateInterval = setInterval(refreshData, 2000);
+            
+            document.getElementById('relevance').addEventListener('input', (e) => {
+                document.getElementById('relevance-value').textContent = e.target.value;
+            });
+        });
+        
+        async function refreshData() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                document.getElementById('version').textContent = data.version;
+                document.getElementById('device-id').textContent = data.device_id;
+                document.getElementById('capacity').textContent = data.learning_capacity.toFixed(3);
+                document.getElementById('cold-items').textContent = data.cold_items;
+                document.getElementById('fingerprint').textContent = data.fingerprint || 'N/A';
+                
+                document.getElementById('phi1-mean').textContent = data.phi1_stats.mean.toFixed(3);
+                document.getElementById('phi5-mean').textContent = data.phi5_stats.mean.toFixed(3);
+                document.getElementById('phi-global').textContent = data.Phi.toFixed(3);
+                
+                await updateFields();
+            } catch (error) {
+                console.error('Error refreshing data:', error);
+            }
+        }
+        
+        async function updateFields() {
+            try {
+                const response = await fetch('/api/fields');
+                const data = await response.json();
+                
+                drawHeatmap('phi1-canvas', data.phi1, 'excitability');
+                drawHeatmap('phi5-canvas', data.phi5, 'plasticity');
+            } catch (error) {
+                console.error('Error updating fields:', error);
+            }
+        }
+        
+        function drawHeatmap(canvasId, field, type) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            
+            const width = canvas.width = canvas.offsetWidth;
+            const height = canvas.height = canvas.offsetHeight;
+            
+            const rows = field.length;
+            const cols = field[0].length;
+            const cellWidth = width / cols;
+            const cellHeight = height / rows;
+            
+            for (let i = 0; i < rows; i++) {
+                for (let j = 0; j < cols; j++) {
+                    const value = field[i][j];
+                    const normalized = type === 'plasticity' 
+                        ? Math.min(Math.max(value, 0), 1)
+                        : (value + 2) / 4;
+                    
+                    const hue = type === 'plasticity' ? 120 : 200;
+                    const saturation = 80;
+                    const lightness = 30 + normalized * 50;
+                    
+                    ctx.fillStyle = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+                    ctx.fillRect(j * cellWidth, i * cellHeight, cellWidth, cellHeight);
+                }
+            }
+        }
+        
+        async function applyLearning(strength) {
+            try {
+                const response = await fetch('/api/learn', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({strength})
+                });
+                const data = await response.json();
+                if (data.success) {
+                    await refreshData();
+                }
+            } catch (error) {
+                console.error('Error applying learning:', error);
+            }
+        }
+        
+        async function applyContradiction() {
+            try {
+                const response = await fetch('/api/contradict', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+                const data = await response.json();
+                if (data.success) {
+                    await refreshData();
+                }
+            } catch (error) {
+                console.error('Error applying contradiction:', error);
+            }
+        }
+        
+        async function ingestContent() {
+            const content = document.getElementById('ingest-content').value;
+            const relevance = parseFloat(document.getElementById('relevance').value);
+            
+            if (!content) return;
+            
+            try {
+                const response = await fetch('/api/ingest', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({content, relevance})
+                });
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('ingest-content').value = '';
+                    await refreshData();
+                }
+            } catch (error) {
+                console.error('Error ingesting content:', error);
+            }
+        }
+        
+        async function recallMemory() {
+            const query = document.getElementById('recall-query').value;
+            if (!query) return;
+            
+            try {
+                const response = await fetch('/api/recall', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({query})
+                });
+                const data = await response.json();
+                
+                const resultsDiv = document.getElementById('recall-results');
+                if (data.results.length === 0) {
+                    resultsDiv.innerHTML = '<p style="color: #aaa;">No results found</p>';
+                } else {
+                    resultsDiv.innerHTML = data.results.map(r => 
+                        `<div class="result-item">${r.content} <span style="color: #00ff88;">(${r.relevance})</span></div>`
+                    ).join('');
+                }
+            } catch (error) {
+                console.error('Error recalling memory:', error);
+            }
+        }
+        
+        async function createDevice() {
+            try {
+                const response = await fetch('/api/sync/create_device', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('sync-status').textContent = 
+                        `Created ${data.device_id}. Total devices: ${data.total_devices}`;
+                }
+            } catch (error) {
+                console.error('Error creating device:', error);
+            }
+        }
+        
+        async function syncDevices() {
+            try {
+                const response = await fetch('/api/sync/merge', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({device_id: 'device-0', alpha: 0.5})
+                });
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('sync-status').textContent = 
+                        `Synced with ${data.merged_from}. New version: ${data.new_version}`;
+                    await refreshData();
+                }
+            } catch (error) {
+                console.error('Error syncing devices:', error);
+            }
+        }
+        
+        async function resetSystem() {
+            if (!confirm('Reset the entire system?')) return;
+            
+            try {
+                const response = await fetch('/api/reset');
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('sync-status').textContent = '';
+                    document.getElementById('recall-results').innerHTML = '';
+                    await refreshData();
+                }
+            } catch (error) {
+                console.error('Error resetting system:', error);
+            }
+        }
+    </script>
+</body>
+</html>

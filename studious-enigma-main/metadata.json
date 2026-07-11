@@ -1,0 +1,9 @@
+{
+  "name": "Quadra Seer Intelligence",
+  "short_name": "Quadra Seer",
+  "description": "Advanced predictive intelligence and data simulation platform.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "package_name": "com.quadraseer.ai"
+}

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#4ade80" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>Quadra Seer Intelligence</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+    <style>
+      :root {
+        --app-height: 100%;
+      }
+      @keyframes fall {
+        to {
+          transform: translateY(120vh);
+        }
+      }
+      .writing-mode-vertical-rl {
+        writing-mode: vertical-rl;
+      }
+      @keyframes pulse-slow {
+        50% {
+          opacity: 0.5;
+        }
+      }
+      .animate-pulse-slow {
+        animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: black;
+        color: white;
+        overflow: hidden;
+        height: 100dvh;
+        width: 100vw;
+        position: fixed;
+        overscroll-behavior-y: none;
+      }
+      #root {
+        height: 100dvh;
+        width: 100vw;
+      }
+      .scrollbar-hide::-webkit-scrollbar {
+        display: none;
+      }
+      .scrollbar-hide {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+    </style>
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom": "https://esm.sh/react-dom@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
+    "react/": "https://esm.sh/react@18.2.0/",
+    "react-dom/": "https://esm.sh/react-dom@18.2.0/",
+    "chart.js/auto": "https://esm.sh/chart.js@4.4.0/auto",
+    "mammoth": "https://esm.sh/mammoth@1.6.0",
+    "xlsx": "https://esm.sh/xlsx@0.18.5",
+    "remark-gfm": "https://esm.sh/remark-gfm@4.0.0?external=react,react-dom",
+    "remark-math": "https://esm.sh/remark-math@6.0.0?external=react,react-dom",
+    "rehype-katex": "https://esm.sh/rehype-katex@7.0.0?external=react,react-dom",
+    "react-markdown": "https://esm.sh/react-markdown@9.0.1?external=react,react-dom",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.24.0",
+    "node-fetch": "https://esm.sh/node-fetch@^3.3.2",
+    "dotenv/": "https://esm.sh/dotenv@^17.2.3/",
+    "express": "https://esm.sh/express@^5.2.1",
+    "cors": "https://esm.sh/cors@^2.8.5",
+    "chart.js/": "https://esm.sh/chart.js@^4.5.1/",
+    "@revenuecat/purchases-js": "https://esm.sh/@revenuecat/purchases-js@latest"
+  }
+}
+</script>
+  <link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
