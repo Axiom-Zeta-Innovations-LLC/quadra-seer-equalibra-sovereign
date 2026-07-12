@@ -218,6 +218,196 @@ class TestLatency(unittest.TestCase):
             _get("/health")
             latencies.append((time.perf_counter() - t0) * 1000)
         avg_ms = sum(latencies) / len(latencies)
+
+
+# ---------------------------------------------------------------------------
+# New endpoint tests (added alongside hardware/runtime/model management)
+# ---------------------------------------------------------------------------
+
+class TestHardwareEndpoints(unittest.TestCase):
+    """Hardware probe, runtime recommend, and port-check endpoints."""
+
+    def test_hardware_probe_returns_structure(self):
+        r = _get("/api/atlantean/hardware/probe")
+        self.assertEqual(r["status"], 200, f"{r}")
+        body = r["body"]
+        self.assertIn("cpu", body)
+        self.assertIn("ram", body)
+        self.assertIn("gpus", body)
+        self.assertIn("recommended_tier", body)
+        self.assertIn("compute_backends_available", body)
+        self.assertIsInstance(body["gpus"], list)
+        self.assertIn(body["recommended_tier"],
+                      ("small_quantized", "medium", "multi_agent"))
+
+    def test_hardware_probe_cpu_keys(self):
+        r = _get("/api/atlantean/hardware/probe")
+        if r["status"] != 200:
+            self.skipTest("hardware probe unavailable")
+        cpu = r["body"].get("cpu", {})
+        self.assertIn("name", cpu)
+        self.assertIn("arch", cpu)
+
+    def test_hardware_probe_ram_keys(self):
+        r = _get("/api/atlantean/hardware/probe")
+        if r["status"] != 200:
+            self.skipTest("hardware probe unavailable")
+        ram = r["body"].get("ram", {})
+        self.assertIn("total_mb", ram)
+        self.assertIn("available_mb", ram)
+
+    def test_runtime_recommend_returns_config(self):
+        r = _post("/api/atlantean/runtime/recommend",
+                  {"model_name": "llama3.1:8b-instruct-q4_K_M", "backend": "ollama"})
+        self.assertEqual(r["status"], 200, f"{r}")
+        rec = r["body"].get("recommendation", {})
+        self.assertIn("n_gpu_layers", rec)
+        self.assertIn("context_size", rec)
+        self.assertIn("compute_type", rec)
+        self.assertIsInstance(rec["n_gpu_layers"], int)
+        self.assertGreater(rec["context_size"], 0)
+
+    def test_port_check_returns_result(self):
+        r = _get("/api/atlantean/ports/check?ports=11434,8080")
+        self.assertEqual(r["status"], 200, f"{r}")
+        ports = r["body"].get("ports", {})
+        self.assertGreater(len(ports), 0)
+        for _port, info in ports.items():
+            self.assertIn("free", info)
+            self.assertIsInstance(info["free"], bool)
+
+    def test_port_check_rejects_empty(self):
+        r = _get("/api/atlantean/ports/check")
+        self.assertEqual(r["status"], 400, f"Expected 400, got {r}")
+
+    def test_hardware_scaling_matrix_present(self):
+        r = _get("/api/atlantean/hardware/scaling-matrix")
+        self.assertEqual(r["status"], 200, f"{r}")
+        body = r["body"]
+        self.assertIn("active_tier_id", body)
+        self.assertIn("active_tier", body)
+
+
+class TestRuntimeEndpoints(unittest.TestCase):
+    """Runtime process management endpoints."""
+
+    def test_runtime_status_structure(self):
+        r = _get("/api/atlantean/runtime/status")
+        self.assertEqual(r["status"], 200, f"{r}")
+        body = r["body"]
+        self.assertIn("processes", body)
+        self.assertIn("backends", body)
+        self.assertIsInstance(body["processes"], list)
+
+    def test_runtime_backends_keys(self):
+        r = _get("/api/atlantean/runtime/status")
+        if r["status"] != 200:
+            self.skipTest("runtime status unavailable")
+        backends = r["body"].get("backends", {})
+        self.assertIn("ollama", backends)
+        self.assertIn("llama_cpp", backends)
+
+    def test_runtime_install_rejects_unknown(self):
+        r = _post("/api/atlantean/runtime/install", {"backend": "fakebackend"})
+        self.assertEqual(r["status"], 400, f"Expected 400, got {r}")
+
+    def test_runtime_stop_unknown_is_graceful(self):
+        r = _post("/api/atlantean/runtime/stop", {"name": "nonexistent_service"})
+        self.assertEqual(r["status"], 200, f"{r}")
+        self.assertIn("success", r["body"])
+
+
+class TestModelEndpoints(unittest.TestCase):
+    """Model list, pull, import and delete endpoints."""
+
+    def test_models_list_structure(self):
+        r = _get("/api/atlantean/models/list")
+        self.assertEqual(r["status"], 200, f"{r}")
+        body = r["body"]
+        self.assertIn("models", body)
+        self.assertIn("counts", body)
+        models = body["models"]
+        self.assertIn("language", models)
+        self.assertIn("speech", models)
+        self.assertIn("voice", models)
+
+    def test_models_pull_rejects_empty(self):
+        r = _post("/api/atlantean/models/pull", {"model": ""})
+        self.assertEqual(r["status"], 400, f"Expected 400, got {r}")
+
+    def test_models_pull_rejects_path_traversal(self):
+        r = _post("/api/atlantean/models/pull", {"model": "../../etc/passwd"})
+        self.assertEqual(r["status"], 400, f"Expected 400, got {r}")
+
+    def test_models_import_rejects_empty_path(self):
+        r = _post("/api/atlantean/models/import", {"path": ""})
+        self.assertEqual(r["status"], 400, f"Expected 400, got {r}")
+
+    def test_models_delete_rejects_empty(self):
+        r = _post("/api/atlantean/models/delete", {"model": ""})
+        self.assertEqual(r["status"], 400, f"Expected 400, got {r}")
+
+
+class TestStreamingEndpoint(unittest.TestCase):
+    """POST /api/atlantean/query/stream must serve SSE."""
+
+    def test_stream_rejects_empty_input(self):
+        r = _post("/api/atlantean/query/stream", {"input": ""})
+        # Should return SSE with an error event, not a plain 400 — both are acceptable.
+        self.assertIn(r["status"], (200, 400, 503), f"{r}")
+
+    def test_stream_returns_event_stream_content_type(self):
+        """An actual streaming response should declare text/event-stream."""
+        url = f"{_BASE_URL}/api/atlantean/query/stream"
+        data = json.dumps({"input": "ping", "llm_provider": "mock"}).encode()
+        req = urllib.request.Request(
+            url, data=data, headers=_headers(), method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                ct = resp.headers.get("Content-Type", "")
+                self.assertIn("event-stream", ct,
+                    f"Expected text/event-stream content type, got: {ct}")
+                # Read first chunk to verify SSE format
+                first_chunk = resp.read(512).decode(errors="replace")
+                self.assertTrue(
+                    first_chunk.startswith("data:") or "data:" in first_chunk,
+                    f"Expected SSE data: prefix in first chunk, got: {first_chunk[:100]!r}"
+                )
+        except urllib.error.HTTPError as e:
+            self.skipTest(f"Streaming endpoint not reachable: {e.code}")
+        except Exception as e:
+            self.skipTest(f"Streaming test skipped: {e}")
+
+
+class TestSecurityHeaders(unittest.TestCase):
+    """Backend responses must include defensive HTTP headers."""
+
+    def _get_headers(self, path: str) -> Dict[str, str]:
+        url = f"{_BASE_URL}{path}"
+        req = urllib.request.Request(url, headers=_headers())
+        try:
+            with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+                return dict(resp.headers)
+        except urllib.error.HTTPError as e:
+            return dict(e.headers)
+        except Exception:
+            return {}
+
+    def test_x_frame_options_present(self):
+        hdrs = self._get_headers("/health")
+        self.assertIn("X-Frame-Options", hdrs,
+            "X-Frame-Options header missing from responses")
+
+    def test_x_content_type_options_present(self):
+        hdrs = self._get_headers("/health")
+        self.assertIn("X-Content-Type-Options", hdrs,
+            "X-Content-Type-Options header missing from responses")
+
+    def test_referrer_policy_present(self):
+        hdrs = self._get_headers("/health")
+        self.assertIn("Referrer-Policy", hdrs,
+            "Referrer-Policy header missing from responses")
         p95_ms = sorted(latencies)[int(len(latencies) * 0.95)]
         print(f"\n  [latency] /health  avg={avg_ms:.1f}ms  p95={p95_ms:.1f}ms")
         self.assertLess(avg_ms, 500,

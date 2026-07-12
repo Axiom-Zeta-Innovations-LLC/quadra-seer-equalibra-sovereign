@@ -7,6 +7,27 @@
     <meta name="theme-color" content="#4ade80" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- Content Security Policy
+         Vault deployments: replace cdn.tailwindcss.com / cdn.jsdelivr.net with
+         self-hosted copies for a fully offline deployment.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval'
+                 https://cdn.tailwindcss.com https://cdn.jsdelivr.net;
+      style-src 'self' 'unsafe-inline'
+                https://cdn.jsdelivr.net https://fonts.googleapis.com;
+      font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com;
+      img-src 'self' data: blob:;
+      media-src 'self' blob:;
+      connect-src 'self'
+                  http://127.0.0.1:* http://localhost:*
+                  ws://127.0.0.1:* ws://localhost:*;
+      worker-src 'self' blob:;
+      frame-src 'none';
+      object-src 'none';
+      base-uri 'self';
+    " />
     <link rel="manifest" href="/manifest.json" />
     <title>Quadra Seer Intelligence</title>
     <script src="https://cdn.tailwindcss.com"></script>
