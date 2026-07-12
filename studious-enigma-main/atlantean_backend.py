@@ -342,7 +342,69 @@ def _local_llm_api_call(prompt: str, **kwargs) -> str:
     return text
 
 
-def _evaluate_cloud_policy(explicit_consent: bool) -> Dict[str, object]:
+def _local_llm_stream(prompt: str, **kwargs):
+    """Yield raw token strings from the local LLM backend (Ollama streaming)."""
+    backend = str(kwargs.get('backend') or LOCAL_LLM_BACKEND).strip().lower()
+    model   = str(kwargs.get('model')   or LOCAL_LLM_MODEL)
+    temperature = float(kwargs.get('temperature', 0.6))
+    max_tokens  = int(kwargs.get('max_tokens', 1200))
+
+    outbound_policy = evaluate_local_url_policy(
+        url=LOCAL_LLM_URL, allow_outbound_network=ALLOW_OUTBOUND_NETWORK,
+    )
+    if not bool(outbound_policy.get('allowed', False)):
+        raise RuntimeError(f"Outbound policy blocked LOCAL_LLM_URL: {outbound_policy.get('reason_code')}")
+
+    if backend == 'ollama':
+        payload = {
+            'model': model, 'prompt': prompt, 'stream': True,
+            'options': {'temperature': temperature, 'num_predict': max_tokens},
+        }
+        with requests.post(LOCAL_LLM_URL, json=payload,
+                           timeout=LOCAL_LLM_TIMEOUT_SECONDS, stream=True) as resp:
+            resp.raise_for_status()
+            for raw_line in resp.iter_lines():
+                if not raw_line:
+                    continue
+                try:
+                    chunk = json.loads(raw_line)
+                except Exception:
+                    continue
+                token = chunk.get('response', '')
+                if token:
+                    yield token
+                if chunk.get('done'):
+                    break
+    elif backend in {'llama.cpp', 'llamacpp', 'llama_cpp'}:
+        # llama.cpp server supports streaming via chunked JSON
+        import_url = LOCAL_LLM_URL.replace('/completion', '/completions') if 'completion' in LOCAL_LLM_URL else LOCAL_LLM_URL
+        payload = {'prompt': prompt, 'temperature': temperature,
+                   'n_predict': max_tokens, 'stream': True}
+        with requests.post(import_url, json=payload,
+                           timeout=LOCAL_LLM_TIMEOUT_SECONDS, stream=True) as resp:
+            resp.raise_for_status()
+            for raw_line in resp.iter_lines():
+                if not raw_line:
+                    continue
+                line = raw_line.decode('utf-8') if isinstance(raw_line, bytes) else raw_line
+                if line.startswith('data:'):
+                    line = line[5:].strip()
+                if line in ('[DONE]', ''):
+                    break
+                try:
+                    chunk = json.loads(line)
+                    token = chunk.get('content', '') or chunk.get('token', {}).get('text', '')
+                    if token:
+                        yield token
+                except Exception:
+                    continue
+    else:
+        # Unsupported streaming backend — fall back to full response, yield as single token
+        text = _local_llm_api_call(prompt, **kwargs)
+        yield text
+
+
+
     return evaluate_cloud_escalation(
         allow_cloud_escalation=ALLOW_CLOUD_ESCALATION,
         require_cloud_escalation_consent=REQUIRE_CLOUD_ESCALATION_CONSENT,
@@ -1880,6 +1942,91 @@ Current field stats:
         ),
     )
     return jsonify(response_payload)
+
+
+@app.route('/api/atlantean/query/stream', methods=['POST'])
+def query_stream():
+    """Stream LLM tokens as Server-Sent Events.
+
+    Same request body as POST /api/atlantean/query.  Emits newline-delimited
+    SSE events::
+
+        data: {"token": "Hello", "done": false}\\n\\n
+        data: {"token": " world", "done": false}\\n\\n
+        data: {"done": true, "response": "...", "session_id": "...", ...}\\n\\n
+
+    Falls back to mock text if the local backend is unavailable.
+    """
+    from flask import Response, stream_with_context
+    data = request.json or {}
+    user_input = str(data.get('input', '') or '').strip()
+    llm_provider = str(data.get('llm_provider') or ATLANTEAN_LLM_PROVIDER).strip().lower()
+    cloud_escalation_consent = bool(data.get('cloud_escalation_consent', False))
+    session_id = _resolve_session_id(data.get('session_id'))
+    files = data.get('files', [])
+
+    if not user_input:
+        def _err():
+            yield f"data: {_canonical_json({'error': 'No input provided', 'done': True})}\n\n"
+        return Response(stream_with_context(_err()), mimetype='text/event-stream')
+
+    b = get_bridge_for_session(session_id)
+    hrm = get_hrm_for_session(session_id)
+    hrm_step = hrm.step(steps=1)
+    hrm_snapshot = hrm_step.get('snapshot', {})
+    _apply_hrm_field_coupling(b, hrm_snapshot)
+
+    # Minimal prompt construction (no symbolic reasoning overhead for streaming)
+    recalled = b.recall_chat_memory(query=user_input, limit=4, session_id=session_id)
+    facts = b.extract_recalled_facts(recalled, limit=2)
+    recent = b.list_chat_history(session_id=session_id, limit=6)
+    history_ctx = "\n".join(
+        f"{'User' if t.get('role') == 'user' else 'Assistant'}: {t.get('content', '')}"
+        for t in recent if t.get('content')
+    )
+    facts_ctx = "\n".join(f"- {f}" for f in facts) if facts else "- (none)"
+    system_p = ("You are Quadra Seer Intelligence, powered by Atlantean Core. "
+                "Respond naturally and helpfully. Never claim internal outages or system anomalies.")
+    full_prompt = (f"{system_p}\n\nConversation:\n{history_ctx}\n\n"
+                   f"Recalled facts:\n{facts_ctx}\n\nUser: {user_input}\nAssistant:")
+
+    tier = MODEL_TIER_SELECTOR.select('simple')
+    model_used = tier.selected_model or LOCAL_LLM_MODEL
+
+    def _token_generator():
+        full_text_parts: list = []
+        try:
+            for token in _local_llm_stream(full_prompt, model=model_used, temperature=0.55, max_tokens=1200):
+                full_text_parts.append(token)
+                yield f"data: {_canonical_json({'token': token, 'done': False})}\n\n"
+        except Exception as e:
+            # Emit error token so frontend can display it
+            err_text = f"[Error: {e}]"
+            full_text_parts.append(err_text)
+            yield f"data: {_canonical_json({'token': err_text, 'done': False})}\n\n"
+
+        full_text = ''.join(full_text_parts)
+
+        # Persist to memory
+        try:
+            b.store_chat_turn(role='user', content=user_input, session_id=session_id, domain='chat', relevance=0.45)
+            b.store_chat_turn(role='assistant', content=full_text[:320], session_id=session_id, domain='chat', relevance=0.3)
+        except Exception:
+            pass
+        _save_bridge_to_redis(session_id, b)
+        _save_hrm_to_redis(session_id, hrm)
+        ledger_event = _append_signed_event(
+            session_id=session_id, bridge=b, event_type='query_processed_stream',
+            payload={'query': user_input, 'generation_mode': 'local', 'model_used': model_used},
+            hrm_snapshot=hrm_snapshot,
+        )
+        yield f"data: {_canonical_json({'done': True, 'response': full_text, 'session_id': session_id, 'ledger': {'seq': ledger_event.get('seq'), 'event_hash': ledger_event.get('event_hash')}})}\n\n"
+
+    return Response(
+        stream_with_context(_token_generator()),
+        mimetype='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+    )
 
 
 @app.route('/api/atlantean/fields', methods=['GET'])

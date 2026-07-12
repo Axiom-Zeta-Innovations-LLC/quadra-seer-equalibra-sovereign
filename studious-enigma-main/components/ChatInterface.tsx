@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Message, Role, UserProfile, FileData, ThinkingMode, ChartConfig } from '../types';
-import streamChatResponse from '../services/geminiService';
+import streamChatResponse, { streamQueryTokens } from '../services/geminiService';
 import { resetSimulation, runSimulationStep } from '../services/simulationService';
 import ChatMessage from './ChatMessage';
 import TypingIndicator from './TypingIndicator';
@@ -9,6 +9,7 @@ import Icon from './Icon';
 import SimulationVisualizer from './SimulationVisualizer';
 import AtlanteanStatusPanel from './AtlanteanStatusPanel';
 import NeuralArchives from './NeuralArchives';
+import HardwarePanel from './HardwarePanel';
 import ProfileModal from './ProfileModal';
 import VoiceModeOverlay from './VoiceModeOverlay';
 import ToastCenter, { type ToastItem, type ToastKind } from './ToastCenter';
@@ -57,7 +58,7 @@ const ChatInterface: React.FC = () => {
   const [isProfileModalOpen, setProfileModalOpen] = useState(false);
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>(ThinkingMode.STANDARD);
   const [audioState, setAudioState] = useState(getAudioState());
-  const [sidebarTab, setSidebarTab] = useState<'telemetry' | 'status' | 'archives'>('telemetry');
+  const [sidebarTab, setSidebarTab] = useState<'telemetry' | 'status' | 'archives' | 'hardware'>('telemetry');
   const [ttsVoice, setTtsVoiceState] = useState<TtsVoice>(getTtsVoice());
   const [convoId, setConvoId] = useState<string>(createAndSetStableSessionId());
   const [simulationWrites, setSimulationWrites] = useState(0);
@@ -566,38 +567,74 @@ const ChatInterface: React.FC = () => {
     let simulationOutcome: 'success' | 'failure' = 'success';
 
     try {
-        const result = await streamChatResponse(nextMessages, currentInput, currentFiles, thinkingMode);
-        const responseText = typeof result?.response === 'string' ? result.response : '';
-
-        if (responseText) {
-            // Parse any chart-data / mermaid blocks embedded in the text response.
-            let chartData: ChartConfig | undefined;
-            let mermaidData: string | undefined;
-            const chartMatches = [...responseText.matchAll(/```chart-data\s*([\s\S]*?)\s*```/g)];
-            if (chartMatches.length > 0) {
-                try { chartData = JSON.parse(chartMatches[chartMatches.length - 1][1]); } catch {}
-            }
-            const mermaidMatches = [...responseText.matchAll(/```mermaid\s*([\s\S]*?)\s*```/g)];
-            if (mermaidMatches.length > 0) {
-                mermaidData = mermaidMatches[mermaidMatches.length - 1][1];
-            }
-
-            const finalBotMsg = {
-              content: responseText,
-              isStreaming: false,
-              chartData,
-              mermaidData,
-            };
-
-            emitLearningSignal('helpful_response', {
-              response_length: responseText.length,
-              mode: thinkingMode,
+        // ── Streaming path (token-by-token via SSE) ──────────────────────
+        let streamingSucceeded = false;
+        await new Promise<void>((resolve) => {
+            const cancelStream = streamQueryTokens(currentInput, {
+                files: currentFiles,
+                sessionId: convoId,
+                onToken: (token) => {
+                    streamingSucceeded = true;
+                    setMessages(prev => prev.map(m =>
+                        m.id === botId
+                            ? { ...m, content: (m.content || '') + token, isStreaming: true }
+                            : m
+                    ));
+                },
+                onDone: ({ response }) => {
+                    // Parse chart/mermaid blocks from the complete streamed text
+                    let chartData: ChartConfig | undefined;
+                    let mermaidData: string | undefined;
+                    const chartMatches = [...response.matchAll(/```chart-data\s*([\s\S]*?)\s*```/g)];
+                    if (chartMatches.length > 0) {
+                        try { chartData = JSON.parse(chartMatches[chartMatches.length - 1][1]); } catch {}
+                    }
+                    const mermaidMatches = [...response.matchAll(/```mermaid\s*([\s\S]*?)\s*```/g)];
+                    if (mermaidMatches.length > 0) {
+                        mermaidData = mermaidMatches[mermaidMatches.length - 1][1];
+                    }
+                    setMessages(prev => prev.map(m =>
+                        m.id === botId
+                            ? { ...m, content: response, isStreaming: false, chartData, mermaidData }
+                            : m
+                    ));
+                    emitLearningSignal('helpful_response', { response_length: response.length, mode: thinkingMode });
+                    outcomePacket = pushSimulationStep(0.2, 0.8);
+                    resolve();
+                },
+                onError: () => {
+                    // Streaming failed — fall through to full-response path
+                    resolve();
+                },
             });
+            // Safety timeout: if streaming hangs, fall through
+            const timeout = window.setTimeout(() => { cancelStream(); resolve(); }, 90_000);
+            // Also cancel stream on component unmount (handled by cleanup below)
+            return () => { cancelStream(); clearTimeout(timeout); };
+        });
 
-            outcomePacket = pushSimulationStep(0.2, 0.8);
-            setMessages(prev => {
-              return prev.map(m => m.id === botId ? { ...m, ...finalBotMsg } : m);
-            });
+        // ── Fallback: full JSON response (if streaming didn't produce output) ──
+        if (!streamingSucceeded) {
+            const result = await streamChatResponse(nextMessages, currentInput, currentFiles, thinkingMode);
+            const responseText = typeof result?.response === 'string' ? result.response : '';
+
+            if (responseText) {
+                let chartData: ChartConfig | undefined;
+                let mermaidData: string | undefined;
+                const chartMatches = [...responseText.matchAll(/```chart-data\s*([\s\S]*?)\s*```/g)];
+                if (chartMatches.length > 0) {
+                    try { chartData = JSON.parse(chartMatches[chartMatches.length - 1][1]); } catch {}
+                }
+                const mermaidMatches = [...responseText.matchAll(/```mermaid\s*([\s\S]*?)\s*```/g)];
+                if (mermaidMatches.length > 0) {
+                    mermaidData = mermaidMatches[mermaidMatches.length - 1][1];
+                }
+                setMessages(prev => prev.map(m =>
+                    m.id === botId ? { ...m, content: responseText, isStreaming: false, chartData, mermaidData } : m
+                ));
+                emitLearningSignal('helpful_response', { response_length: responseText.length, mode: thinkingMode });
+                outcomePacket = pushSimulationStep(0.2, 0.8);
+            }
         }
     } catch (err: any) {
         simulationOutcome = 'failure';
@@ -717,6 +754,12 @@ const ChatInterface: React.FC = () => {
           >
             Archives
           </button>
+          <button 
+            onClick={() => setSidebarTab('hardware')}
+            className={`flex-1 py-3 text-[9px] font-bold uppercase tracking-[0.2em] rounded-lg transition-all ${sidebarTab === 'hardware' ? 'bg-white/10 text-[var(--color-primary)]' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            Hardware
+          </button>
         </div>
         
         {sidebarTab === 'telemetry' ? (
@@ -734,6 +777,10 @@ const ChatInterface: React.FC = () => {
             isRefreshingFields={isRefreshingFields}
             refreshTelemetry={refreshTelemetry}
           />
+        ) : sidebarTab === 'hardware' ? (
+          <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
+            <HardwarePanel />
+          </div>
         ) : (
           <NeuralArchives
             currentSessionId={convoId}
