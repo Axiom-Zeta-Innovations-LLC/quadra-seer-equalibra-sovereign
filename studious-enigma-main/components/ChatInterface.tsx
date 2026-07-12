@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Message, Role, UserProfile, FileData, ThinkingMode, ChartConfig } from '../types';
-import streamChatResponse, { streamQueryTokens } from '../services/geminiService';
+import streamChatResponse, { streamQueryTokens } from '../services/queryService';
 import { resetSimulation, runSimulationStep } from '../services/simulationService';
 import ChatMessage from './ChatMessage';
 import TypingIndicator from './TypingIndicator';

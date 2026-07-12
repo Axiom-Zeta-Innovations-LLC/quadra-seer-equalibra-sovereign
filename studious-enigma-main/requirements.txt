@@ -11,6 +11,7 @@ redis==5.0.1
 scikit-learn==1.4.0
 flask-session==0.8.0
 cryptography==44.0.1
+psutil>=5.9.0
 # Step 31 — local offline voice pipeline (install after base deps)
 faster-whisper==1.1.1
 piper-tts==1.2.0

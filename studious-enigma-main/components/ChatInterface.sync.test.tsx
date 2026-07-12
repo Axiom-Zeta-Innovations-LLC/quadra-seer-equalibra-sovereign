@@ -52,7 +52,7 @@ vi.mock('../hooks/useAtlantean', () => ({
   }),
 }));
 
-vi.mock('../services/geminiService', () => ({
+vi.mock('../services/queryService', () => ({
   default: vi.fn(),
 }));
 
