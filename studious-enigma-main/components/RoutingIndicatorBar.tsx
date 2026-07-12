@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { getRoutingSettings, RoutingSettingsData } from '../services/atlanteanService';
+import { getRoutingSettings, RoutingSettingsData, resolveAtlanteanApiBaseOrThrow } from '../services/atlanteanService';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -55,6 +55,7 @@ export default function RoutingIndicatorBar({
 }: RoutingIndicatorBarProps) {
   const [settings, setSettings] = useState<RoutingSettingsData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [voiceCaps, setVoiceCaps] = useState<{ stt: boolean; tts: boolean } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +71,17 @@ export default function RoutingIndicatorBar({
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'routing unavailable');
         }
+      }
+      // Probe voice pipeline independently — don't let failure break routing display.
+      try {
+        const base = resolveAtlanteanApiBaseOrThrow();
+        const resp = await fetch(`${base}/voice/capabilities`);
+        if (!cancelled && resp.ok) {
+          const d = await resp.json();
+          setVoiceCaps({ stt: Boolean(d?.stt?.available), tts: Boolean(d?.tts?.available) });
+        }
+      } catch {
+        // Voice capabilities probe is best-effort.
       }
     };
 
@@ -169,6 +181,22 @@ export default function RoutingIndicatorBar({
           <Badge label="REASONING OFF" variant="neutral" />
         )}
       </div>
+
+      {/* Voice pipeline row */}
+      {voiceCaps !== null && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge
+            label={`STT ${voiceCaps.stt ? 'WHISPER' : 'BROWSER'}`}
+            variant={voiceCaps.stt ? 'ok' : 'neutral'}
+            title={voiceCaps.stt ? 'faster-whisper transcription active' : 'Browser Web Speech API (no local STT)'}
+          />
+          <Badge
+            label={`TTS ${voiceCaps.tts ? 'PIPER' : 'BROWSER'}`}
+            variant={voiceCaps.tts ? 'ok' : 'neutral'}
+            title={voiceCaps.tts ? 'Piper offline TTS active' : 'Browser SpeechSynthesis (no local TTS)'}
+          />
+        </div>
+      )}
     </div>
   );
 }

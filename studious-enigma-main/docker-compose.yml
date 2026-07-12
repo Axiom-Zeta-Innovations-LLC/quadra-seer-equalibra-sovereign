@@ -18,13 +18,28 @@ services:
       context: .
       dockerfile: Dockerfile.python
     environment:
+      # Cloud provider — optional, only used when cloud escalation is enabled + consented.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      VITE_GEMINI_API_KEY: ${VITE_GEMINI_API_KEY:-}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       ATLANTEAN_SESSION_SECRET: ${ATLANTEAN_SESSION_SECRET:-}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
+      # Local LLM — point at a running Ollama/llama.cpp/vLLM instance.
+      ATLANTEAN_LLM_PROVIDER: ${ATLANTEAN_LLM_PROVIDER:-local}
+      LOCAL_LLM_BACKEND: ${LOCAL_LLM_BACKEND:-ollama}
+      LOCAL_LLM_URL: ${LOCAL_LLM_URL:-http://host.docker.internal:11434/api/generate}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.1:8b-instruct-q4_K_M}
+      ATLANTEAN_HARDWARE_TIER: ${ATLANTEAN_HARDWARE_TIER:-medium}
+      # Local voice pipeline (Step 31).
+      ATLANTEAN_WHISPER_MODEL: ${ATLANTEAN_WHISPER_MODEL:-base}
+      ATLANTEAN_WHISPER_DEVICE: ${ATLANTEAN_WHISPER_DEVICE:-cpu}
+      ATLANTEAN_WHISPER_COMPUTE_TYPE: ${ATLANTEAN_WHISPER_COMPUTE_TYPE:-int8}
+      ATLANTEAN_PIPER_VOICE: ${ATLANTEAN_PIPER_VOICE:-en_US-lessac-medium}
+      ATLANTEAN_PIPER_VOICE_DIR: /app/voices
+    volumes:
+      # Mount host voice models directory so Piper can access .onnx files.
+      - piper_voices_data:/app/voices
     ports:
       - "5001:5001"
     depends_on:
@@ -56,3 +71,4 @@ services:
 volumes:
   redis_data:
   node_modules_cache:
+  piper_voices_data:

@@ -4,9 +4,14 @@ FROM python:3.12-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies.
+# ffmpeg    — audio format decoding for faster-whisper (WebM, OGG, MP4, etc.)
+# libsndfile1 — libsndfile support used by audio processing libraries
+# gcc       — needed for some C-extension builds
 RUN apt-get update && apt-get install -y \
     gcc \
+    ffmpeg \
+    libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching

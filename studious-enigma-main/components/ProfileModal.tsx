@@ -10,11 +10,14 @@ import {
   ModelTierPreference,
   getCloudEscalationConsent,
   getLlmProvider,
+  getProviderApiKey,
   getRoutingControls,
   setCloudEscalationConsent,
   setLlmProvider,
+  setProviderApiKey,
   setRoutingControls,
 } from '../services/settingsService';
+import { resolveAtlanteanApiBaseOrThrow } from '../services/atlanteanService';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -57,6 +60,8 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
   const [cloudEscalationConsent, setCloudEscalationConsentState] = useState<boolean>(getCloudEscalationConsent());
   const [modelTierPreference, setModelTierPreference] = useState<ModelTierPreference>(getRoutingControls().modelTierPreference);
   const [localBackendHint, setLocalBackendHint] = useState<LocalBackendHint>(getRoutingControls().localBackendHint);
+  const [geminiApiKey, setGeminiApiKey] = useState<string>(getProviderApiKey('gemini') || '');
+  const [voiceCaps, setVoiceCaps] = useState<{ stt: boolean; tts: boolean } | null>(null);
 
   useEffect(() => {
     setProfile(currentProfile);
@@ -64,6 +69,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
     setCloudEscalationConsentState(getCloudEscalationConsent());
     setModelTierPreference(getRoutingControls().modelTierPreference);
     setLocalBackendHint(getRoutingControls().localBackendHint);
+    setGeminiApiKey(getProviderApiKey('gemini') || '');
     // When the modal is opened, sync the color pickers with the current theme's colors
     if (isOpen) {
         const customThemeColors = JSON.parse(localStorage.getItem('qmai-custom-theme-colors') || '{}');
@@ -72,6 +78,12 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
         
         setCustomPrimary(customThemeColors.primary || defaultPrimary);
         setCustomAccent(customThemeColors.accent || defaultAccent);
+        // Probe voice pipeline capabilities.
+        const base = resolveAtlanteanApiBaseOrThrow();
+        fetch(`${base}/voice/capabilities`)
+            .then(r => r.ok ? r.json() : null)
+            .then(d => d ? setVoiceCaps({ stt: Boolean(d.stt?.available), tts: Boolean(d.tts?.available) }) : null)
+            .catch(() => setVoiceCaps({ stt: false, tts: false }));
     }
   }, [currentProfile, isOpen, theme]);
 
@@ -82,6 +94,9 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
     setLlmProvider(llmProvider);
     setCloudEscalationConsent(cloudEscalationConsent);
     setRoutingControls({ modelTierPreference, localBackendHint });
+    if (geminiApiKey.trim()) {
+      setProviderApiKey('gemini', geminiApiKey.trim());
+    }
     // Check if the colors have been changed from the currently active theme's colors
     const originalPrimary = theme.colors['--color-primary'];
     const originalAccent = theme.colors['--color-accent'];
@@ -228,6 +243,25 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                 />
                 <span>Allow cloud escalation for this device profile when backend policy allows it.</span>
               </label>
+              {cloudEscalationConsent && (
+                <div>
+                  <label htmlFor="gemini-api-key" className="block text-sm font-medium mb-1" style={{ color: 'var(--color-primary)' }}>
+                    Gemini API Key <span className="text-[9px] text-gray-400 font-normal">(stored in localStorage only)</span>
+                  </label>
+                  <input
+                    id="gemini-api-key"
+                    type="password"
+                    value={geminiApiKey}
+                    onChange={e => setGeminiApiKey(e.target.value)}
+                    placeholder="AIza…"
+                    className="w-full p-2 bg-gray-800/50 border rounded-md focus:outline-none focus:ring-2 font-mono text-xs"
+                    style={{ borderColor: 'var(--color-border)', '--tw-ring-color': 'var(--color-accent)' } as any}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <p className="text-[10px] text-gray-500 mt-1">Required for Gemini inference or Gemini TTS. Never committed to source control.</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -277,6 +311,31 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
           <div>
             <h3 className="text-lg font-semibold mb-3" style={{ color: 'var(--color-primary)' }}>Voice</h3>
             <div className="space-y-4 pl-2 border-l-2" style={{ borderColor: 'var(--color-border)' }}>
+              {/* Voice pipeline status */}
+              {voiceCaps !== null && (
+                <div className="flex flex-wrap gap-1.5 text-[9px] font-bold tracking-wider">
+                  <span
+                    className={`px-1.5 py-0.5 rounded border ${
+                      voiceCaps.stt
+                        ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+                        : 'text-gray-500 border-gray-600/40 bg-gray-600/10'
+                    }`}
+                    title={voiceCaps.stt ? 'faster-whisper STT active' : 'Using browser Web Speech API'}
+                  >
+                    STT {voiceCaps.stt ? 'LOCAL' : 'BROWSER'}
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded border ${
+                      voiceCaps.tts
+                        ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+                        : 'text-gray-500 border-gray-600/40 bg-gray-600/10'
+                    }`}
+                    title={voiceCaps.tts ? 'Piper TTS active' : 'Using browser SpeechSynthesis / Gemini (with consent)'}
+                  >
+                    TTS {voiceCaps.tts ? 'PIPER' : 'BROWSER'}
+                  </span>
+                </div>
+              )}
               <div>
                 <label htmlFor="tts-voice" className="block text-sm font-medium mb-1" style={{ color: 'var(--color-primary)' }}>
                   Assistant Voice
