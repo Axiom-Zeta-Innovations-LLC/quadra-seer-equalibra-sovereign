@@ -570,9 +570,23 @@ const ChatInterface: React.FC = () => {
         const responseText = typeof result?.response === 'string' ? result.response : '';
 
         if (responseText) {
+            // Parse any chart-data / mermaid blocks embedded in the text response.
+            let chartData: ChartConfig | undefined;
+            let mermaidData: string | undefined;
+            const chartMatches = [...responseText.matchAll(/```chart-data\s*([\s\S]*?)\s*```/g)];
+            if (chartMatches.length > 0) {
+                try { chartData = JSON.parse(chartMatches[chartMatches.length - 1][1]); } catch {}
+            }
+            const mermaidMatches = [...responseText.matchAll(/```mermaid\s*([\s\S]*?)\s*```/g)];
+            if (mermaidMatches.length > 0) {
+                mermaidData = mermaidMatches[mermaidMatches.length - 1][1];
+            }
+
             const finalBotMsg = {
               content: responseText,
               isStreaming: false,
+              chartData,
+              mermaidData,
             };
 
             emitLearningSignal('helpful_response', {
@@ -584,82 +598,6 @@ const ChatInterface: React.FC = () => {
             setMessages(prev => {
               return prev.map(m => m.id === botId ? { ...m, ...finalBotMsg } : m);
             });
-        } else if (result && result.candidates) {
-            const candidate = result.candidates[0];
-            const parts = candidate.content?.parts || [];
-            let textOutput = "";
-            let imageOutput = "";
-            
-            parts.forEach((p: any) => {
-                if (p.text) textOutput += p.text;
-                if (p.inlineData) {
-                    imageOutput = `data:${p.inlineData.mimeType};base64,${p.inlineData.data}`;
-                }
-            });
-
-            const finalBotMsg = { 
-              content: textOutput || (imageOutput ? "Predictive visualization processed." : ""), 
-              imageGenerated: imageOutput,
-              isStreaming: false 
-            };
-
-            emitLearningSignal(
-              finalBotMsg.content.trim() ? 'helpful_response' : 'clarification_needed',
-              {
-                response_length: finalBotMsg.content.length,
-                mode: thinkingMode,
-              }
-            );
-
-            outcomePacket = pushSimulationStep(0.2, 0.8);
-            setMessages(prev => {
-              return prev.map(m => m.id === botId ? { ...m, ...finalBotMsg } : m);
-            });
-        }
-        else if (result && result[Symbol.asyncIterator]) {
-            let fullText = '';
-            let lastChunkTime = Date.now();
-            
-            for await (const chunk of result) {
-                const now = Date.now();
-                const latency = (now - lastChunkTime) / 1000;
-                lastChunkTime = now;
-
-                if (chunk.text) {
-                  fullText += chunk.text;
-                  const streamStress = Math.min(latency * 3, 0.9);
-                  outcomePacket = pushSimulationStep(streamStress, 0.9);
-
-                  setMessages(prev => prev.map(m => {
-                      if (m.id !== botId) return m;
-                      
-                      // 1. Numerical Charts
-                      let chart: ChartConfig | undefined = undefined;
-                      const chartMatches = [...fullText.matchAll(/```chart-data\s*([\s\S]*?)\s*```/g)];
-                      if (chartMatches.length > 0) {
-                          const lastMatch = chartMatches[chartMatches.length - 1][1];
-                          try { chart = JSON.parse(lastMatch); } catch (e) {}
-                      }
-
-                      // 2. Structural Diagrams (Mermaid)
-                      let mermaid: string | undefined = undefined;
-                      const mermaidMatches = [...fullText.matchAll(/```mermaid\s*([\s\S]*?)\s*```/g)];
-                      if (mermaidMatches.length > 0) {
-                          mermaid = mermaidMatches[mermaidMatches.length - 1][1];
-                      }
-
-                      return { ...m, content: fullText, chartData: chart, mermaidData: mermaid };
-                  }));
-                }
-            }
-
-            emitLearningSignal(
-              fullText.trim() ? 'helpful_response' : 'clarification_needed',
-              {
-                response_length: fullText.length,
-                mode: thinkingMode,
-              }
-            );
         }
     } catch (err: any) {
         simulationOutcome = 'failure';
