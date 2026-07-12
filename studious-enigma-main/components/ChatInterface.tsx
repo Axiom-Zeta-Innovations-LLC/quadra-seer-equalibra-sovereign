@@ -77,6 +77,12 @@ const ChatInterface: React.FC = () => {
   const [interimInput, setInterimInput] = useState('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Track any in-flight streaming request so it can be cancelled on unmount.
+  const activeStreamRef = useRef<(() => void) | null>(null);
+
+  // Cancel stream on unmount to prevent state updates on an unmounted component.
+  useEffect(() => () => { activeStreamRef.current?.(); }, []);
+
   const onFinalTranscript = useCallback((transcript: string) => {
     setInput(prev => prev ? `${prev.trim()} ${transcript}` : transcript);
     setInterimInput('');
@@ -569,7 +575,19 @@ const ChatInterface: React.FC = () => {
     try {
         // ── Streaming path (token-by-token via SSE) ──────────────────────
         let streamingSucceeded = false;
+        // Cancel any previous in-flight stream before starting a new one.
+        activeStreamRef.current?.();
+        activeStreamRef.current = null;
+
         await new Promise<void>((resolve) => {
+            let settled = false;
+            const settle = () => {
+                if (!settled) { settled = true; activeStreamRef.current = null; resolve(); }
+            };
+            const timeout = window.setTimeout(() => {
+                activeStreamRef.current?.(); settle();
+            }, 90_000);
+
             const cancelStream = streamQueryTokens(currentInput, {
                 files: currentFiles,
                 sessionId: convoId,
@@ -582,7 +600,7 @@ const ChatInterface: React.FC = () => {
                     ));
                 },
                 onDone: ({ response }) => {
-                    // Parse chart/mermaid blocks from the complete streamed text
+                    clearTimeout(timeout);
                     let chartData: ChartConfig | undefined;
                     let mermaidData: string | undefined;
                     const chartMatches = [...response.matchAll(/```chart-data\s*([\s\S]*?)\s*```/g)];
@@ -600,17 +618,15 @@ const ChatInterface: React.FC = () => {
                     ));
                     emitLearningSignal('helpful_response', { response_length: response.length, mode: thinkingMode });
                     outcomePacket = pushSimulationStep(0.2, 0.8);
-                    resolve();
+                    settle();
                 },
                 onError: () => {
-                    // Streaming failed — fall through to full-response path
-                    resolve();
+                    clearTimeout(timeout);
+                    settle(); // fall through to full-response path
                 },
             });
-            // Safety timeout: if streaming hangs, fall through
-            const timeout = window.setTimeout(() => { cancelStream(); resolve(); }, 90_000);
-            // Also cancel stream on component unmount (handled by cleanup below)
-            return () => { cancelStream(); clearTimeout(timeout); };
+            // Store cancel in ref so the unmount cleanup effect can abort the stream.
+            activeStreamRef.current = () => { cancelStream(); clearTimeout(timeout); settle(); };
         });
 
         // ── Fallback: full JSON response (if streaming didn't produce output) ──

@@ -54,6 +54,11 @@ vi.mock('../hooks/useAtlantean', () => ({
 
 vi.mock('../services/queryService', () => ({
   default: vi.fn(),
+  streamQueryTokens: vi.fn((_input: string, opts: { onError: (e: string) => void }) => {
+    // Immediately signal error so the fallback full-response path runs in tests.
+    opts.onError('Mock: streaming not available');
+    return () => {};
+  }),
 }));
 
 vi.mock('../services/simulationService', () => ({

@@ -474,6 +474,28 @@ CORS(
 # ── Bearer-token authentication (optional) ───────────────────────────────────
 _UNPROTECTED_PATHS = frozenset(['/health', '/health/deep'])
 
+@app.after_request
+def _add_security_headers(response):
+    """Apply standard defensive HTTP headers to every response."""
+    response.headers.setdefault('X-Frame-Options', 'DENY')
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    # Restrict permissions to only what the app uses (mic for voice, no camera).
+    response.headers.setdefault('Permissions-Policy', 'camera=(), payment=(), usb=()')
+    # Content-Security-Policy: allow same-origin + loopback backend connections.
+    response.headers.setdefault(
+        'Content-Security-Policy',
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: blob:; "
+        "media-src 'self' blob:; "
+        "connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; "
+        "worker-src 'self' blob:;"
+    )
+    return response
+
 @app.before_request
 def _require_api_token() -> None:
     """Enforce bearer-token auth when ATLANTEAN_API_TOKEN is configured."""
