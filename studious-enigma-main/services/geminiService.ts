@@ -1,5 +1,5 @@
 import { Message, Role, FileData, ThinkingMode } from '../types';
-import { getStableSessionId, resolveAtlanteanApiBaseOrThrow } from './atlanteanService';
+import { getStableSessionId, resolveAtlanteanApiBaseOrThrow, getAtlanteanAuthHeaders } from './atlanteanService';
 import { getCloudEscalationConsent, getLlmProvider } from './settingsService';
 
 /**
@@ -53,6 +53,7 @@ const streamChatResponse = async (
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                ...getAtlanteanAuthHeaders(),
             },
             body: JSON.stringify({
                 input: newMessage,

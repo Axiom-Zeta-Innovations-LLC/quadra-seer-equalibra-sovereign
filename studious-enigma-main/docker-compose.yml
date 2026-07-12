@@ -37,11 +37,18 @@ services:
       ATLANTEAN_WHISPER_COMPUTE_TYPE: ${ATLANTEAN_WHISPER_COMPUTE_TYPE:-int8}
       ATLANTEAN_PIPER_VOICE: ${ATLANTEAN_PIPER_VOICE:-en_US-lessac-medium}
       ATLANTEAN_PIPER_VOICE_DIR: /app/voices
+      # Authentication — set to a long random secret in production.
+      ATLANTEAN_API_TOKEN: ${ATLANTEAN_API_TOKEN:-}
+      ATLANTEAN_BIND_HOST: 0.0.0.0
     volumes:
       # Mount host voice models directory so Piper can access .onnx files.
       - piper_voices_data:/app/voices
     ports:
       - "5001:5001"
+    # Resource limits — adjust to Vault hardware capacity.
+    mem_limit: 8g
+    cpus: "4.0"
+    pids_limit: 512
     depends_on:
       redis:
         condition: service_healthy

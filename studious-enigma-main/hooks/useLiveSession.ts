@@ -18,7 +18,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import { resolveAtlanteanApiBaseOrThrow } from '../services/atlanteanService';
+import { resolveAtlanteanApiBaseOrThrow, getAtlanteanAuthHeaders } from '../services/atlanteanService';
 import { getLlmProvider, getCloudEscalationConsent } from '../services/settingsService';
 import { DEFAULT_TTS_VOICE, TtsVoice } from '../services/ttsService';
 
@@ -128,7 +128,7 @@ export const useLiveSession = (voiceName: TtsVoice = DEFAULT_TTS_VOICE) => {
             const b64 = await blobToBase64(blob);
             const resp = await fetch(`${base}/transcribe`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...getAtlanteanAuthHeaders() },
                 body: JSON.stringify({ audio_base64: b64, mime_type: blob.type }),
             });
             if (resp.ok) {
@@ -148,7 +148,7 @@ export const useLiveSession = (voiceName: TtsVoice = DEFAULT_TTS_VOICE) => {
             const consent  = getCloudEscalationConsent();
             const qResp = await fetch(`${base}/query`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...getAtlanteanAuthHeaders() },
                 body: JSON.stringify({
                     input: transcript,
                     llm_provider: provider,
@@ -170,7 +170,7 @@ export const useLiveSession = (voiceName: TtsVoice = DEFAULT_TTS_VOICE) => {
             setIsModelSpeaking(true);
             const ttsResp = await fetch(`${base}/tts`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...getAtlanteanAuthHeaders() },
                 body: JSON.stringify({ text: responseText, voice: voiceName }),
             });
             if (ttsResp.ok && activeRef.current) {

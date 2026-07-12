@@ -81,6 +81,7 @@ from atlantean_core.local_voice import (
     check_whisper_available,
     check_piper_available,
 )
+from atlantean_core.model_integrity import verify_model_files_on_startup
 
 # Load environment variables.
 # In Docker Compose, GEMINI_* may be injected as empty strings; override ensures
@@ -165,6 +166,25 @@ PROVIDER_CAPABILITIES = build_provider_capability_registry(
     local_model=LOCAL_LLM_MODEL,
     local_context_window=LOCAL_CONTEXT_WINDOW,
 )
+
+# Runtime security — authentication and network binding.
+# When ATLANTEAN_API_TOKEN is set every non-health API request must carry
+# "Authorization: Bearer <token>".  Leave unset for loopback-only dev setups.
+ATLANTEAN_API_TOKEN: str = (os.getenv('ATLANTEAN_API_TOKEN') or '').strip()
+# Bind address: 127.0.0.1 for Vault (loopback-only), 0.0.0.0 for Docker/LAN.
+ATLANTEAN_BIND_HOST: str = (os.getenv('ATLANTEAN_BIND_HOST') or '127.0.0.1').strip()
+ATLANTEAN_BIND_PORT: int = int(os.getenv('ATLANTEAN_PORT') or os.getenv('PORT') or '5001')
+if ATLANTEAN_API_TOKEN:
+    print(f"✅ Bearer-token authentication enabled ({len(ATLANTEAN_API_TOKEN)} chars)")
+else:
+    print("⚠️  ATLANTEAN_API_TOKEN not set — API is unauthenticated (loopback-only deployments only)")
+if ATLANTEAN_BIND_HOST == '127.0.0.1':
+    print("🔒 Backend bound to loopback (127.0.0.1) — not accessible from LAN")
+else:
+    print(f"🌐 Backend bound to {ATLANTEAN_BIND_HOST} — ensure firewall rules are in place")
+
+# Verify model file checksums at startup (warning only, does not abort).
+verify_model_files_on_startup(piper_voice_dir=PIPER_VOICE_DIR, piper_voice=PIPER_VOICE)
 
 # Step 31 — Local offline voice pipeline.
 WHISPER_MODEL_SIZE = os.getenv('ATLANTEAN_WHISPER_MODEL', 'base').strip()
@@ -359,6 +379,27 @@ CORS(
     supports_credentials=True,
     max_age=3600  # Preflight cache duration in seconds
 )
+
+# ── Bearer-token authentication (optional) ───────────────────────────────────
+_UNPROTECTED_PATHS = frozenset(['/health', '/health/deep'])
+
+@app.before_request
+def _require_api_token() -> None:
+    """Enforce bearer-token auth when ATLANTEAN_API_TOKEN is configured."""
+    import hmac as _hmac
+    if request.method == 'OPTIONS':
+        return None
+    if request.path in _UNPROTECTED_PATHS:
+        return None
+    if not ATLANTEAN_API_TOKEN:
+        return None  # no token configured — unauthenticated mode
+    auth = request.headers.get('Authorization', '')
+    if not auth.startswith('Bearer '):
+        return jsonify({'error': 'Unauthorized', 'hint': 'Provide Authorization: Bearer <token>'}), 401
+    provided = auth[len('Bearer '):]
+    if not _hmac.compare_digest(provided.encode(), ATLANTEAN_API_TOKEN.encode()):
+        return jsonify({'error': 'Unauthorized'}), 401
+    return None
 
 # Try to connect to Redis, fallback to in-memory storage if unavailable
 try:
@@ -2846,11 +2887,47 @@ def local_tts():
 
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check endpoint."""
+    """Shallow health check — does not require auth."""
+    return jsonify({'status': 'healthy', 'service': 'Atlantean Backend'})
+
+
+@app.route('/health/deep', methods=['GET'])
+def health_deep():
+    """Deep health check — reports subsystem status without auth."""
+    import platform as _platform
+    import sys as _sys
+    redis_ok = REDIS_AVAILABLE
+    ollama_ok = False
+    try:
+        r = requests.get(LOCAL_LLM_URL.replace('/api/generate', '/'), timeout=2)
+        ollama_ok = r.status_code < 500
+    except Exception:
+        pass
+
+    voice_caps = {
+        'stt': check_whisper_available(),
+        'tts': check_piper_available(voice_dir=PIPER_VOICE_DIR, voice=PIPER_VOICE),
+    }
+
+    checks = {
+        'redis': 'ok' if redis_ok else 'unavailable',
+        'ollama': 'ok' if ollama_ok else 'unavailable',
+        'whisper_stt': 'ok' if voice_caps['stt'].get('available') else 'unavailable',
+        'piper_tts': 'ok' if voice_caps['tts'].get('available') else 'unavailable',
+        'auth': 'enabled' if ATLANTEAN_API_TOKEN else 'disabled',
+        'bind_host': ATLANTEAN_BIND_HOST,
+        'encryption': 'enabled' if os.getenv('ATLANTEAN_ENCRYPTION_ENABLED', '1') == '1' else 'disabled',
+        'cloud_escalation': 'disabled' if not ALLOW_CLOUD_ESCALATION else 'enabled',
+    }
+    overall = 'healthy' if redis_ok else 'degraded'
     return jsonify({
-        'status': 'healthy',
-        'service': 'Atlantean Backend',
-        'version': '1.0.0'
+        'status': overall,
+        'checks': checks,
+        'voice': voice_caps,
+        'hardware_tier': ACTIVE_HARDWARE_TIER.tier_id,
+        'provider': normalize_provider_name(ATLANTEAN_LLM_PROVIDER) or 'local',
+        'python': _sys.version.split()[0],
+        'platform': _platform.platform(),
     })
 
 
@@ -2858,26 +2935,14 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("🧠 ATLANTEAN INTELLIGENCE BACKEND")
     print("="*60)
-    print("\nStarting server on http://localhost:5001")
-    print("\nAPI Endpoints:")
-    print("  GET  /health                        - Health check")
-    print("  GET  /api/atlantean/status          - Get intelligence status")
-    print("  POST /api/atlantean/query           - Process user query")
-    print("  GET  /api/atlantean/fields          - Get field visualization")
-    print("  POST /api/atlantean/learning-event  - Trigger learning")
-    print("  POST /api/atlantean/simulation/*    - Simulation storage")
-    print("  POST /api/atlantean/snapshot        - Create snapshot")
-    print("  GET  /api/atlantean/sync/*          - Multi-device sync")
-    print("  POST /api/atlantean/reset           - Reset state")
+    print(f"\nStarting server on http://{ATLANTEAN_BIND_HOST}:{ATLANTEAN_BIND_PORT}")
     print("\nPress Ctrl+C to stop")
     print("="*60 + "\n")
-    
-    # Initialize on startup (loads from Redis if available)
+
     get_bridge()
 
-    port = int(os.getenv('PORT', 5001))
     app.run(
-        host='0.0.0.0',
-        port=port,
-        debug=False
+        host=ATLANTEAN_BIND_HOST,
+        port=ATLANTEAN_BIND_PORT,
+        debug=False,
     )

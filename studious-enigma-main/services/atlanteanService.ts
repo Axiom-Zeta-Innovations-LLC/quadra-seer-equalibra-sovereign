@@ -7,6 +7,24 @@
 
 import { getRoutingControls } from './settingsService';
 
+// ── Auth helpers ──────────────────────────────────────────────────────────────
+// When VITE_API_TOKEN is set the backend requires "Authorization: Bearer <token>"
+// on all non-health endpoints.  This wrapper injects it transparently.
+
+export function getAtlanteanAuthHeaders(): Record<string, string> {
+    const token = (import.meta.env.VITE_API_TOKEN as string | undefined) ?? '';
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+/** Authenticated fetch — injects Authorization header when a token is configured. */
+async function _aFetch(url: string, init?: RequestInit): Promise<Response> {
+    const authH = getAtlanteanAuthHeaders();
+    const headers = new Headers(init?.headers);
+    if (authH['Authorization']) headers.set('Authorization', authH['Authorization']);
+    return fetch(url, { ...init, headers });
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function normalizeAtlanteanApiBase(raw: string): string {
   const trimmed = String(raw).trim();
 
@@ -249,7 +267,7 @@ export type LearningEventType =
  */
 export async function getStatus(sessionId?: string): Promise<AtlanteanStatus> {
   const sid = resolveSessionId(sessionId);
-  const response = await fetch(`${getAtlanteanApiBase()}/status?session_id=${encodeURIComponent(sid)}`);
+  const response = await _aFetch(`${getAtlanteanApiBase()}/status?session_id=${encodeURIComponent(sid)}`);
   if (!response.ok) {
     throw new Error(`Failed to get status: ${response.statusText}`);
   }
@@ -299,7 +317,7 @@ export async function query(
 
   // history is intentionally NOT forwarded to the backend.
 
-  const response = await fetch(`${getAtlanteanApiBase()}/query`, {
+  const response = await _aFetch(`${getAtlanteanApiBase()}/query`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -319,7 +337,7 @@ export async function query(
  */
 export async function getFields(sessionId?: string): Promise<FieldData> {
   const sid = resolveSessionId(sessionId);
-  const response = await fetch(`${getAtlanteanApiBase()}/fields?session_id=${encodeURIComponent(sid)}`);
+  const response = await _aFetch(`${getAtlanteanApiBase()}/fields?session_id=${encodeURIComponent(sid)}`);
   if (!response.ok) {
     throw new Error(`Failed to get fields: ${response.statusText}`);
   }
@@ -338,7 +356,7 @@ export async function getChatHistory(
     session_id: sid,
     limit: String(limit),
   });
-  const response = await fetch(`${getAtlanteanApiBase()}/chat/history?${params.toString()}`);
+  const response = await _aFetch(`${getAtlanteanApiBase()}/chat/history?${params.toString()}`);
   if (!response.ok) {
     throw new Error(`Failed to get chat history: ${response.statusText}`);
   }
@@ -360,7 +378,7 @@ export async function triggerLearningEvent(
   sessionId?: string
 ): Promise<{ success: boolean; status: AtlanteanStatus }> {
   const sid = resolveSessionId(sessionId);
-  const response = await fetch(`${getAtlanteanApiBase()}/learning-event`, {
+  const response = await _aFetch(`${getAtlanteanApiBase()}/learning-event`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -384,7 +402,7 @@ export async function storeSimulation(
   sessionId?: string
 ): Promise<{ success: boolean }> {
   const sid = resolveSessionId(sessionId);
-  const response = await fetch(`${getAtlanteanApiBase()}/simulation/store`, {
+  const response = await _aFetch(`${getAtlanteanApiBase()}/simulation/store`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -409,7 +427,7 @@ export async function recallSimulations(
 ): Promise<any[]> {
   const sid = resolveSessionId(sessionId);
   // Prefer /list (direct Redis listing). Fallback to /recall for backward compatibility.
-  const listResponse = await fetch(
+  const listResponse = await _aFetch(
     `${getAtlanteanApiBase()}/simulation/list?limit=${limit}&session_id=${encodeURIComponent(sid)}`
   );
   if (listResponse.ok) {
@@ -421,7 +439,7 @@ export async function recallSimulations(
     throw new Error(`Failed to list simulations: ${listResponse.statusText}`);
   }
 
-  const recallResponse = await fetch(`${getAtlanteanApiBase()}/simulation/recall`, {
+  const recallResponse = await _aFetch(`${getAtlanteanApiBase()}/simulation/recall`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -445,7 +463,7 @@ export async function createSnapshot(
   sessionId?: string
 ): Promise<{ snapshot: any }> {
   const sid = resolveSessionId(sessionId);
-  const response = await fetch(`${getAtlanteanApiBase()}/snapshot`, {
+  const response = await _aFetch(`${getAtlanteanApiBase()}/snapshot`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -473,7 +491,7 @@ export async function listSnapshots(
     limit: String(limit),
   });
 
-  const response = await fetch(`${getAtlanteanApiBase()}/snapshots?${params.toString()}`);
+  const response = await _aFetch(`${getAtlanteanApiBase()}/snapshots?${params.toString()}`);
   if (!response.ok) {
     throw new Error(`Failed to list snapshots: ${response.statusText}`);
   }
@@ -489,7 +507,7 @@ export async function restoreSnapshot(
   sessionId?: string
 ): Promise<{ success: boolean; session_id: string; snapshot_id: string; status: AtlanteanStatus }> {
   const sid = resolveSessionId(sessionId);
-  const response = await fetch(`${getAtlanteanApiBase()}/snapshot/restore`, {
+  const response = await _aFetch(`${getAtlanteanApiBase()}/snapshot/restore`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -515,7 +533,7 @@ export async function deleteSnapshot(
   sessionId?: string
 ): Promise<{ success: boolean; session_id: string; snapshot_id: string; remaining: number }> {
   const sid = resolveSessionId(sessionId);
-  const response = await fetch(`${getAtlanteanApiBase()}/snapshot/delete`, {
+  const response = await _aFetch(`${getAtlanteanApiBase()}/snapshot/delete`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -546,7 +564,7 @@ export async function listColdManifests(
   params.set('session_id', sid);
   const suffix = params.toString() ? `?${params.toString()}` : '';
 
-  const response = await fetch(`${getAtlanteanApiBase()}/cold/manifests${suffix}`);
+  const response = await _aFetch(`${getAtlanteanApiBase()}/cold/manifests${suffix}`);
   if (!response.ok) {
     throw new Error(`Failed to list cold manifests: ${response.statusText}`);
   }
@@ -564,7 +582,7 @@ export async function exportColdManifest(
   const params = new URLSearchParams({ manifest_id: manifestId });
   params.set('session_id', sid);
 
-  const response = await fetch(`${getAtlanteanApiBase()}/cold/manifest/export?${params.toString()}`);
+  const response = await _aFetch(`${getAtlanteanApiBase()}/cold/manifest/export?${params.toString()}`);
   if (!response.ok) {
     throw new Error(`Failed to export cold manifest: ${response.statusText}`);
   }
@@ -582,7 +600,7 @@ export async function importColdManifest(
   const body: any = { manifest };
   body.session_id = sid;
 
-  const response = await fetch(`${getAtlanteanApiBase()}/cold/manifest/import`, {
+  const response = await _aFetch(`${getAtlanteanApiBase()}/cold/manifest/import`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -610,7 +628,7 @@ export async function tombstoneColdItem(
     session_id: sid,
   };
 
-  const response = await fetch(`${getAtlanteanApiBase()}/cold/tombstone`, {
+  const response = await _aFetch(`${getAtlanteanApiBase()}/cold/tombstone`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -628,7 +646,7 @@ export async function tombstoneColdItem(
  */
 export async function prepareSyncPackage(): Promise<{ package: any }> {
   const sid = resolveSessionId();
-  const response = await fetch(`${getAtlanteanApiBase()}/sync/prepare?session_id=${encodeURIComponent(sid)}`);
+  const response = await _aFetch(`${getAtlanteanApiBase()}/sync/prepare?session_id=${encodeURIComponent(sid)}`);
   if (!response.ok) {
     throw new Error(`Failed to prepare sync: ${response.statusText}`);
   }
@@ -643,7 +661,7 @@ export async function mergeSyncPackage(
   strategy: 'conservative' | 'field_average' | 'last_write_wins' | 'max_energy' | 'max_plasticity' = 'conservative'
 ): Promise<{ success: boolean; status: AtlanteanStatus; sync?: any; session_id?: string }> {
   const sid = resolveSessionId();
-  const response = await fetch(`${getAtlanteanApiBase()}/sync/merge`, {
+  const response = await _aFetch(`${getAtlanteanApiBase()}/sync/merge`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -662,7 +680,7 @@ export async function mergeSyncPackage(
  * Reset intelligence state (for testing/debugging)
  */
 export async function resetIntelligence(): Promise<{ success: boolean }> {
-  const response = await fetch(`${getAtlanteanApiBase()}/reset`, {
+  const response = await _aFetch(`${getAtlanteanApiBase()}/reset`, {
     method: 'POST',
   });
   
@@ -677,7 +695,7 @@ export async function resetIntelligence(): Promise<{ success: boolean }> {
  * Manually save intelligence state
  */
 export async function saveState(): Promise<{ success: boolean }> {
-  const response = await fetch(`${getAtlanteanApiBase()}/save`, {
+  const response = await _aFetch(`${getAtlanteanApiBase()}/save`, {
     method: 'POST',
   });
   
@@ -693,7 +711,7 @@ export async function saveState(): Promise<{ success: boolean }> {
  */
 export async function checkHealth(): Promise<boolean> {
   try {
-    const response = await fetch(getAtlanteanHealthUrl());
+    const response = await _aFetch(getAtlanteanHealthUrl());
     return response.ok;
   } catch {
     return false;
@@ -711,7 +729,7 @@ export async function replayIntegrityProof(
   params.set('session_id', sid);
   const suffix = params.toString() ? `?${params.toString()}` : '';
 
-  const response = await fetch(`${getAtlanteanApiBase()}/integrity/replay${suffix}`);
+  const response = await _aFetch(`${getAtlanteanApiBase()}/integrity/replay${suffix}`);
   if (!response.ok) {
     throw new Error(`Failed replay proof: ${response.statusText}`);
   }
@@ -754,7 +772,7 @@ export interface RoutingSettingsData {
  * Return active runtime routing configuration (Step 25/26).
  */
 export async function getRoutingSettings(): Promise<RoutingSettingsData> {
-  const response = await fetch(`${getAtlanteanApiBase()}/routing/settings`);
+  const response = await _aFetch(`${getAtlanteanApiBase()}/routing/settings`);
   if (!response.ok) {
     throw new Error(`Failed to get routing settings: ${response.statusText}`);
   }
@@ -783,7 +801,7 @@ export async function getDiagnosticsBundle(sessionId?: string): Promise<{ bundle
   const sid = resolveSessionId(sessionId);
   const params = new URLSearchParams();
   params.set('session_id', sid);
-  const response = await fetch(`${getAtlanteanApiBase()}/diagnostics/export?${params.toString()}`);
+  const response = await _aFetch(`${getAtlanteanApiBase()}/diagnostics/export?${params.toString()}`);
   if (!response.ok) {
     throw new Error(`Failed to export diagnostics: ${response.statusText}`);
   }
@@ -801,7 +819,7 @@ export async function exportSoulFile(
   params.set('session_id', sid);
   const suffix = params.toString() ? `?${params.toString()}` : '';
 
-  const response = await fetch(`${getAtlanteanApiBase()}/export${suffix}`);
+  const response = await _aFetch(`${getAtlanteanApiBase()}/export${suffix}`);
   if (!response.ok) {
     throw new Error(`Failed to export soul file: ${response.statusText}`);
   }
