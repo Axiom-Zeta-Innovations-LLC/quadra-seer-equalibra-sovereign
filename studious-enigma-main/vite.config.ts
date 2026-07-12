@@ -31,9 +31,8 @@ export default defineConfig(({ mode }) => {
               if (id.includes('jszip')) {
                 return 'vendor-jszip';
               }
-              if (id.includes('@google/genai')) {
-                return 'vendor-ai';
-              }
+              // @google/genai is a dynamic import behind the consent gate;
+              // Rollup creates an automatic lazy chunk — no manual split needed.
               if (id.includes('react') || id.includes('scheduler')) {
                 return 'vendor-react';
               }

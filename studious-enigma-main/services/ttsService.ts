@@ -1,5 +1,9 @@
-import { GoogleGenAI, Modality } from "@google/genai";
 import { resolveAtlanteanApiBaseOrThrow } from './atlanteanService';
+
+// @google/genai is loaded ONLY when the user has granted cloud-escalation consent
+// and supplied a Gemini API key.  The dynamic import() keeps it out of the
+// initial bundle so it never loads — and never contacts aistudiocdn.com —
+// unless explicitly requested.
 
 // Read consent + key from localStorage directly to avoid a circular import
 // (settingsService imports from this file for voice constants).
@@ -192,6 +196,8 @@ export const textToSpeechStream = async (
             return null;
         }
 
+        // Lazy-load the Gemini SDK only now that consent + key are confirmed.
+        const { GoogleGenAI, Modality } = await import('@google/genai');
         const ai = new GoogleGenAI({ apiKey });
         
         const prompt = `Read this with a professional, scientific, and calm tone: "${speechText}"`;
