@@ -56,6 +56,7 @@ export default function RoutingIndicatorBar({
   const [settings, setSettings] = useState<RoutingSettingsData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [voiceCaps, setVoiceCaps] = useState<{ stt: boolean; tts: boolean } | null>(null);
+  const [hwTier, setHwTier] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,6 +83,17 @@ export default function RoutingIndicatorBar({
         }
       } catch {
         // Voice capabilities probe is best-effort.
+      }
+      // Fetch hardware tier from deep health check.
+      try {
+        const deepResp = await fetch(`${base}/health/deep`);
+        if (!cancelled && deepResp.ok) {
+          const d = await deepResp.json();
+          const tier = d?.hardware_tier as string | undefined;
+          if (tier) setHwTier(tier);
+        }
+      } catch {
+        // Hardware tier probe is best-effort.
       }
     };
 
@@ -141,6 +153,13 @@ export default function RoutingIndicatorBar({
           variant="neutral"
           title={`Light: ${model_tiers.light || '—'} | Standard: ${model_tiers.standard || '—'} | Heavy: ${model_tiers.heavy || '—'}`}
         />
+        {hwTier && (
+          <Badge
+            label={`HW: ${hwTier.replace('_', ' ')}`}
+            variant="info"
+            title={`Detected hardware tier: ${hwTier}`}
+          />
+        )}
       </div>
 
       {/* Policy state row */}
