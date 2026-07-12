@@ -465,6 +465,7 @@ const ChatInterface: React.FC = () => {
         disconnect_reason: lastEndReason,
         thinking_mode: thinkingMode,
         voice: ttsVoice,
+        pipeline: 'local',
       }).catch((error) => {
         console.warn("Learning signal 'voice_session_end' failed:", error);
       });
