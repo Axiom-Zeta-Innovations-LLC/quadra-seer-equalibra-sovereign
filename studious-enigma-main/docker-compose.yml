@@ -40,6 +40,10 @@ services:
       # Authentication — set to a long random secret in production.
       ATLANTEAN_API_TOKEN: ${ATLANTEAN_API_TOKEN:-}
       ATLANTEAN_BIND_HOST: 0.0.0.0
+    # host.docker.internal resolves on Docker Desktop (Mac/Windows).
+    # On Linux Docker Engine it requires this explicit mapping.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Mount host voice models directory so Piper can access .onnx files.
       - piper_voices_data:/app/voices
@@ -64,6 +68,8 @@ services:
     working_dir: /app
     environment:
       VITE_ATLANTEAN_PROXY_TARGET: http://backend:5001
+      # Must match ATLANTEAN_API_TOKEN so the browser sends the bearer header.
+      VITE_API_TOKEN: ${VITE_API_TOKEN:-${ATLANTEAN_API_TOKEN:-}}
     ports:
       - "3000:3000"
     volumes:

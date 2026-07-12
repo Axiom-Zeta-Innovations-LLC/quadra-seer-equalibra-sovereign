@@ -200,6 +200,10 @@ ATLANTEAN_API_TOKEN: str = (os.getenv('ATLANTEAN_API_TOKEN') or '').strip()
 # Bind address: 127.0.0.1 for Vault (loopback-only), 0.0.0.0 for Docker/LAN.
 ATLANTEAN_BIND_HOST: str = (os.getenv('ATLANTEAN_BIND_HOST') or '127.0.0.1').strip()
 ATLANTEAN_BIND_PORT: int = int(os.getenv('ATLANTEAN_PORT') or os.getenv('PORT') or '5001')
+
+# Per-IP rate limiting for the streaming endpoint.
+_stream_rl_calls: Dict[str, list] = {}
+_stream_rl_lock = __import__('threading').Lock()
 if ATLANTEAN_API_TOKEN:
     print(f"✅ Bearer-token authentication enabled ({len(ATLANTEAN_API_TOKEN)} chars)")
 else:
@@ -1981,7 +1985,22 @@ def query_stream():
         data: {"done": true, "response": "...", "session_id": "...", ...}\\n\\n
 
     Falls back to mock text if the local backend is unavailable.
+    Rate-limited to ATLANTEAN_STREAM_RATE_LIMIT (default 20) requests/minute/IP.
     """
+    # ── Per-IP rate limiting ─────────────────────────────────────────────────
+    _limit = int(os.getenv('ATLANTEAN_STREAM_RATE_LIMIT', '20'))
+    _ip = (request.headers.get('X-Forwarded-For', request.remote_addr) or '127.0.0.1').split(',')[0].strip()
+    _now = time.time()
+    with _stream_rl_lock:
+        _window = [t for t in _stream_rl_calls.get(_ip, []) if _now - t < 60]
+        if len(_window) >= _limit:
+            return jsonify({
+                'error': 'Rate limit exceeded. Try again in 60 seconds.',
+                'retry_after_seconds': 60,
+            }), 429
+        _window.append(_now)
+        _stream_rl_calls[_ip] = _window
+    # ─────────────────────────────────────────────────────────────────────────
     from flask import Response, stream_with_context
     data = request.json or {}
     user_input = str(data.get('input', '') or '').strip()

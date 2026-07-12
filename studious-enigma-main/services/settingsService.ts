@@ -94,8 +94,10 @@ export function getProviderApiKey(provider: LlmProvider): string | undefined {
   if (envKey && envKey.trim()) return envKey.trim();
 
   if (provider === 'gemini') {
-    const compat = (import.meta as any).env?.VITE_GEMINI_API_KEY || (process as any)?.env?.API_KEY;
-    if (compat && String(compat).trim()) return String(compat).trim();
+    // SECURITY: Do NOT read VITE_GEMINI_API_KEY from import.meta.env here.
+    // VITE_* env vars are baked into the frontend bundle and visible in
+    // browser devtools. Keys must be stored via setProviderApiKey() instead.
+    // The generic VITE_{PROVIDER}_API_KEY check above already covers this.
   }
 
   return undefined;
