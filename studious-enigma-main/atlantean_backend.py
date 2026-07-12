@@ -75,6 +75,12 @@ from atlantean_core.hardware_scaling_matrix import (
     get_tier_or_default,
     tier_to_dict,
 )
+from atlantean_core.local_voice import (
+    LocalWhisperTranscriber,
+    LocalPiperTts,
+    check_whisper_available,
+    check_piper_available,
+)
 
 # Load environment variables.
 # In Docker Compose, GEMINI_* may be injected as empty strings; override ensures
@@ -159,6 +165,42 @@ PROVIDER_CAPABILITIES = build_provider_capability_registry(
     local_model=LOCAL_LLM_MODEL,
     local_context_window=LOCAL_CONTEXT_WINDOW,
 )
+
+# Step 31 — Local offline voice pipeline.
+WHISPER_MODEL_SIZE = os.getenv('ATLANTEAN_WHISPER_MODEL', 'base').strip()
+WHISPER_DEVICE = os.getenv('ATLANTEAN_WHISPER_DEVICE', 'cpu').strip()
+WHISPER_COMPUTE_TYPE = os.getenv('ATLANTEAN_WHISPER_COMPUTE_TYPE', 'int8').strip()
+WHISPER_LANGUAGE: str | None = os.getenv('ATLANTEAN_WHISPER_LANGUAGE') or None
+PIPER_VOICE = os.getenv('ATLANTEAN_PIPER_VOICE', 'en_US-lessac-medium').strip()
+PIPER_VOICE_DIR = os.getenv('ATLANTEAN_PIPER_VOICE_DIR', './voices').strip()
+
+_local_transcriber: LocalWhisperTranscriber | None = None
+_local_tts: LocalPiperTts | None = None
+_voice_lock = __import__('threading').Lock()
+
+
+def _get_transcriber() -> LocalWhisperTranscriber:
+    global _local_transcriber
+    with _voice_lock:
+        if _local_transcriber is None:
+            _local_transcriber = LocalWhisperTranscriber(
+                model_size=WHISPER_MODEL_SIZE,
+                device=WHISPER_DEVICE,
+                compute_type=WHISPER_COMPUTE_TYPE,
+                language=WHISPER_LANGUAGE,
+            )
+    return _local_transcriber
+
+
+def _get_piper() -> LocalPiperTts:
+    global _local_tts
+    with _voice_lock:
+        if _local_tts is None:
+            _local_tts = LocalPiperTts(
+                voice=PIPER_VOICE,
+                voice_dir=PIPER_VOICE_DIR,
+            )
+    return _local_tts
 
 
 def _emit_security_policy_event(event_type: str, payload: Dict[str, Any]) -> None:
@@ -2698,6 +2740,106 @@ def load():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ========== Local Voice Endpoints (Step 31) ==========
+
+@app.route('/api/atlantean/voice/capabilities', methods=['GET'])
+def voice_capabilities():
+    """Return availability of local STT (Whisper) and TTS (Piper)."""
+    return jsonify({
+        'stt': check_whisper_available(),
+        'tts': check_piper_available(voice_dir=PIPER_VOICE_DIR, voice=PIPER_VOICE),
+        'config': {
+            'whisper_model': WHISPER_MODEL_SIZE,
+            'whisper_device': WHISPER_DEVICE,
+            'whisper_language': WHISPER_LANGUAGE,
+            'piper_voice': PIPER_VOICE,
+            'piper_voice_dir': PIPER_VOICE_DIR,
+        },
+    })
+
+
+@app.route('/api/atlantean/transcribe', methods=['POST'])
+def transcribe_audio():
+    """Transcribe audio to text using local faster-whisper.
+
+    Accepts either:
+    - JSON body  ``{"audio_base64": "<base64>", "mime_type": "audio/webm"}``
+    - Multipart form-data with a ``file`` field
+    """
+    audio_bytes: bytes | None = None
+
+    if request.content_type and 'multipart' in request.content_type:
+        f = request.files.get('file') or request.files.get('audio')
+        if f is None:
+            return jsonify({'error': 'No audio file uploaded'}), 400
+        audio_bytes = f.read()
+    else:
+        body = request.get_json(force=True, silent=True) or {}
+        b64 = body.get('audio_base64') or body.get('audio')
+        if not b64:
+            return jsonify({'error': 'No audio_base64 in request body'}), 400
+        try:
+            audio_bytes = base64.b64decode(b64)
+        except Exception as e:
+            return jsonify({'error': f'Invalid base64: {e}'}), 400
+
+    if not audio_bytes:
+        return jsonify({'error': 'Empty audio data'}), 400
+
+    try:
+        transcriber = _get_transcriber()
+        result = transcriber.transcribe(audio_bytes)
+        return jsonify(result)
+    except RuntimeError as e:
+        return jsonify({'error': str(e), 'available': False}), 503
+    except Exception as e:
+        return jsonify({'error': f'Transcription failed: {e}'}), 500
+
+
+@app.route('/api/atlantean/tts', methods=['POST'])
+def local_tts():
+    """Synthesise text to WAV audio using local Piper TTS.
+
+    Request body::
+
+        {"text": "Hello world", "voice": "en_US-lessac-medium"}
+
+    Response::
+
+        {
+            "audio_base64": "<base64-WAV>",
+            "format": "wav",
+            "sample_rate": 22050
+        }
+    """
+    body = request.get_json(force=True, silent=True) or {}
+    text = str(body.get('text') or '').strip()
+    if not text:
+        return jsonify({'error': 'No text provided'}), 400
+    # Limit input length to mitigate abuse.
+    if len(text) > 4000:
+        return jsonify({'error': 'Text exceeds 4000 character limit'}), 400
+
+    voice = str(body.get('voice') or PIPER_VOICE).strip() or PIPER_VOICE
+    # Sanitise voice name: only allow alphanumeric, hyphen, underscore, dot.
+    import re as _re
+    if not _re.match(r'^[\w\-\.]+$', voice):
+        return jsonify({'error': 'Invalid voice name'}), 400
+
+    try:
+        piper = _get_piper()
+        result = piper.synthesize(text, voice=voice)
+        return jsonify({
+            'audio_base64': result['audio_base64'],
+            'format': result['format'],
+            'sample_rate': result['sample_rate'],
+        })
+    except RuntimeError as e:
+        return jsonify({'error': str(e), 'available': False}), 503
+    except Exception as e:
+        return jsonify({'error': f'TTS failed: {e}'}), 500
 
 
 # ========== Health Check ==========

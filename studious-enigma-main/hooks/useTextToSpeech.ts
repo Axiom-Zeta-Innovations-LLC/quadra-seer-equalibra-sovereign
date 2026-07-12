@@ -41,10 +41,10 @@ export const useTextToSpeech = () => {
         const ctx = await wakeAudioContext();
         setIsSpeaking(true);
         
-        const base64Data = await textToSpeechStream(speechText, voiceName);
+        const audioData = await textToSpeechStream(speechText, voiceName);
         
-        if (!base64Data) {
-            // Fallback to browser TTS if Gemini generation fails
+        if (!audioData) {
+            // Fallback to browser TTS when no local/cloud engine is available
           const utterance = new SpeechSynthesisUtterance(speechText);
             if (voiceName && typeof window !== 'undefined' && window.speechSynthesis) {
               const availableVoices = window.speechSynthesis.getVoices();
@@ -63,10 +63,17 @@ export const useTextToSpeech = () => {
             return;
         }
 
-        const audioBytes = decodeAudio(base64Data);
-        // raw PCM data requires manual decoding as per SDK instructions
-        const buffer = await decodeAudioData(audioBytes, ctx, 24000, 1);
-        
+        const audioBytes = decodeAudio(audioData.audioBase64);
+        let buffer: AudioBuffer;
+
+        if (audioData.format === 'wav') {
+            // WAV: use the browser's native decoder (handles any sample rate / channel count)
+            buffer = await ctx.decodeAudioData(audioBytes.buffer.slice(0));
+        } else {
+            // PCM: raw 16-bit little-endian (Gemini TTS output)
+            buffer = await decodeAudioData(audioBytes, ctx, audioData.sampleRate, audioData.channels);
+        }
+
         const source = ctx.createBufferSource();
         source.buffer = buffer;
         source.connect(ctx.destination);

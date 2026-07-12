@@ -1,4 +1,5 @@
 import { GoogleGenAI, Modality } from "@google/genai";
+import { resolveAtlanteanApiBaseOrThrow } from './atlanteanService';
 
 // Read consent + key from localStorage directly to avoid a circular import
 // (settingsService imports from this file for voice constants).
@@ -14,6 +15,18 @@ function _getGeminiTtsCredentials(): { consent: boolean; apiKey: string | null }
         return { consent: false, apiKey: null };
     }
 }
+
+/**
+ * Structured audio data returned by textToSpeechStream.
+ * format='wav'  → standard WAV file; decode via AudioContext.decodeAudioData()
+ * format='pcm'  → raw 16-bit PCM (Gemini); decode via manual Int16 path
+ */
+export type TtsAudioData = {
+    audioBase64: string;
+    format: 'wav' | 'pcm';
+    sampleRate: number;
+    channels: number;
+};
 
 export const GEMINI_TTS_VOICES = [
     'Zephyr',
@@ -141,11 +154,35 @@ export const prepareSpeechText = (text: string): string => {
 export const textToSpeechStream = async (
     text: string,
     voiceName: TtsVoice = DEFAULT_TTS_VOICE,
-): Promise<string | null> => {
+): Promise<TtsAudioData | null> => {
     try {
         const speechText = prepareSpeechText(text);
         if (!speechText) return null;
 
+        // --- 1. Try local Piper TTS backend (no credentials needed) ---
+        try {
+            const apiBase = resolveAtlanteanApiBaseOrThrow();
+            const resp = await fetch(`${apiBase}/tts`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: speechText, voice: voiceName }),
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.audio_base64) {
+                    return {
+                        audioBase64: data.audio_base64,
+                        format: 'wav',
+                        sampleRate: data.sample_rate ?? 22050,
+                        channels: 1,
+                    };
+                }
+            }
+        } catch {
+            // Backend unreachable or Piper not installed — fall through.
+        }
+
+        // --- 2. Try Gemini TTS (requires cloud escalation consent + key) ---
         // Require explicit cloud-escalation consent AND a user-supplied key.
         // Keys must never come from VITE_ env vars (those are embedded in the
         // browser bundle and visible to anyone who inspects it).
@@ -173,7 +210,13 @@ export const textToSpeechStream = async (
         });
 
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        return base64Audio || null;
+        if (!base64Audio) return null;
+        return {
+            audioBase64: base64Audio,
+            format: 'pcm',
+            sampleRate: 24000,
+            channels: 1,
+        };
 
     } catch (error) {
         console.error("[TTS Service] Error:", error);
