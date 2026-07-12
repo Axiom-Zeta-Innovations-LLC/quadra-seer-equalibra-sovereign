@@ -602,16 +602,18 @@ const ChatInterface: React.FC = () => {
     } catch (err: any) {
         simulationOutcome = 'failure';
         const message = err instanceof Error ? err.message : 'Request failed';
-        const isMissingKey = /gemini requested but no gemini_api_key is configured/i.test(message);
-        const userFacingError = isMissingKey
-          ? 'ERROR: Cloud provider requested but GEMINI_API_KEY is missing. Switch to local provider or configure cloud escalation in .env.local.'
-          : `ERROR: ${message}`;
+        const userFacingError = `ERROR: ${message}`;
+        // If the backend reports a missing API key, hint the user to check Profile settings.
+        const keyHint = /no.*api.?key|api.?key.*missing|api.?key.*not.*configured/i.test(message)
+          ? ' Check Profile → Model Routing to configure a cloud provider key.'
+          : '';
+        const displayError = userFacingError + keyHint;
         emitLearningSignal('unhelpful_response', {
           error: message,
           mode: thinkingMode,
         });
         outcomePacket = pushSimulationStep(1.0, 0);
-        setMessages(prev => prev.map(m => m.id === botId ? { ...m, content: userFacingError, isStreaming: false } : m));
+        setMessages(prev => prev.map(m => m.id === botId ? { ...m, content: displayError, isStreaming: false } : m));
     } finally {
       void triggerEvent('simulation_complete', {
         outcome: simulationOutcome,

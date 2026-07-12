@@ -26,8 +26,18 @@ import numpy as np
 import torch
 import requests
 from typing import Any, Dict, List
-from google import genai
-from google.genai import types
+# google-genai is optional — only imported when a consented cloud call is made.
+# Never imported at module level so it cannot cause startup errors on Vault.
+def _get_genai_client(api_key: str):
+    """Lazy-load google-genai and return an authenticated client."""
+    try:
+        from google import genai as _genai  # type: ignore[import]
+        return _genai.Client(api_key=api_key)
+    except ImportError as exc:
+        raise RuntimeError(
+            "google-genai package not installed. "
+            "Cloud escalation requires: pip install google-genai"
+        ) from exc
 from dotenv import load_dotenv
 from event_normalization import (
     normalize_disconnect_reason,
@@ -82,6 +92,23 @@ from atlantean_core.local_voice import (
     check_piper_available,
 )
 from atlantean_core.model_integrity import verify_model_files_on_startup
+from atlantean_core.hardware_probe import full_probe as _hw_full_probe
+from atlantean_core.runtime_config import recommend_runtime as _recommend_runtime
+from atlantean_core.process_manager import (
+    start_ollama, stop_process, list_processes,
+    is_port_free, find_free_port, wait_for_port,
+    start_llamacpp_server,
+)
+from atlantean_core.model_manager import (
+    list_all_models, pull_ollama_model, import_gguf_to_ollama,
+    delete_ollama_model, get_pull_progress,
+)
+from atlantean_core.backend_installer import (
+    backend_status as _backend_status,
+    install_ollama as _install_ollama,
+    install_llamacpp as _install_llamacpp,
+    detect_platform_key as _detect_platform_key,
+)
 
 # Load environment variables.
 # In Docker Compose, GEMINI_* may be injected as empty strings; override ensures
@@ -92,14 +119,13 @@ load_dotenv('.env.local', override=True)
 from atlantean_quadra_bridge import AtlanteanQuadraBridge, QuadraLearningEvent
 from hrm import HRMAdapter, HRMState
 
-# Configure providers
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY') or os.getenv('VITE_GEMINI_API_KEY')
-if GEMINI_API_KEY and GEMINI_API_KEY != 'PLACEHOLDER_API_KEY':
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    print(f"✅ Gemini API configured")
+# Configure providers — Gemini is OPTIONAL (consent-gated cloud escalation only).
+GEMINI_API_KEY: str = (os.getenv('GEMINI_API_KEY') or '').strip()
+if GEMINI_API_KEY and GEMINI_API_KEY not in ('PLACEHOLDER_API_KEY', 'YOUR_GEMINI_API_KEY_HERE'):
+    print('✅ Gemini API key present (cloud escalation available when consented)')
 else:
-    client = None
-    print("⚠️  No Gemini API key found - using mock responses")
+    GEMINI_API_KEY = ''
+    print('ℹ️  No Gemini API key — all inference runs locally')
 
 ATLANTEAN_LLM_PROVIDER = (os.getenv('ATLANTEAN_LLM_PROVIDER') or 'local').strip().lower()
 LOCAL_LLM_URL = os.getenv('LOCAL_LLM_URL', 'http://127.0.0.1:11434/api/generate').strip()
@@ -1605,7 +1631,7 @@ Do not ask the user to upload the same document again unless every attachment is
                 )
             if not api_key or api_key == 'PLACEHOLDER_API_KEY':
                 escalation_reason_code = 'CLOUD_ESCALATION_MISSING_API_KEY'
-                raise RuntimeError('Gemini requested but no GEMINI_API_KEY is configured')
+                raise RuntimeError('Cloud provider requested but no API key is configured')
 
             if str(provider_capability.get('backend', '')).lower() != 'google-genai':
                 escalation_reason_code = 'CLOUD_ESCALATION_UNSUPPORTED_BACKEND'
@@ -1614,7 +1640,7 @@ Do not ask the user to upload the same document again unless every attachment is
                     f"backend={provider_capability.get('backend')}"
                 )
 
-            api_client = genai.Client(api_key=api_key)
+            api_client = _get_genai_client(api_key)
             configured_model = os.getenv('GEMINI_MODEL') or os.getenv('ATLANTEAN_GEMINI_MODEL')
             candidate_models = [m for m in [
                 configured_model,
@@ -2475,7 +2501,7 @@ def export_diagnostics_bundle():
         'python_version': _sys.version,
         'platform': _platform.platform(),
         'redis_available': REDIS_AVAILABLE,
-        'gemini_configured': bool(client is not None),
+        'gemini_configured': bool(GEMINI_API_KEY),
         'local_llm_url': LOCAL_LLM_URL,
         'provider_capabilities': list(PROVIDER_CAPABILITIES.keys()),
         'hardware_tier': ACTIVE_HARDWARE_TIER.tier_id,
@@ -2881,6 +2907,248 @@ def local_tts():
         return jsonify({'error': str(e), 'available': False}), 503
     except Exception as e:
         return jsonify({'error': f'TTS failed: {e}'}), 500
+
+
+# ========== Hardware, Runtime, Model & Port Endpoints (Steps 1-10) ==========
+
+_hw_cache: Dict[str, Any] = {}
+_hw_cache_ts: float = 0.0
+_HW_CACHE_TTL = 30.0  # seconds
+
+
+@app.route('/api/atlantean/hardware/probe', methods=['GET'])
+def hardware_probe():
+    """Full hardware probe: CPU, RAM, NVIDIA/AMD/Intel/Apple/NPU, VRAM.
+
+    Results are cached for 30 s to avoid hammering nvidia-smi on every render.
+    Use ?refresh=1 to force a fresh probe.
+    """
+    global _hw_cache, _hw_cache_ts
+    refresh = request.args.get('refresh', '0') == '1'
+    if not refresh and _hw_cache and (time.time() - _hw_cache_ts) < _HW_CACHE_TTL:
+        return jsonify(_hw_cache)
+    result = _hw_full_probe()
+    _hw_cache = result
+    _hw_cache_ts = time.time()
+    return jsonify(result)
+
+
+@app.route('/api/atlantean/runtime/recommend', methods=['POST'])
+def runtime_recommend():
+    """Return recommended GPU layers, context size and backend args for a model.
+
+    Request body: ``{"model_name": "llama3.1:8b", "backend": "ollama"}``
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    model_name = str(data.get('model_name') or 'llama3.1:8b').strip()
+    backend = str(data.get('backend') or 'ollama').strip()
+    probe = _hw_full_probe()
+    rec = _recommend_runtime(probe, model_name, backend)
+    return jsonify({'recommendation': rec, 'probe_summary': {
+        'gpus': len(probe.get('gpus', [])),
+        'best_vram_mb': probe.get('best_vram_mb'),
+        'ram_mb': (probe.get('ram') or {}).get('total_mb'),
+        'apple_silicon': bool(probe.get('apple_silicon')),
+    }})
+
+
+@app.route('/api/atlantean/runtime/status', methods=['GET'])
+def runtime_status():
+    """Return status of all managed inference processes."""
+    from atlantean_core.backend_installer import backend_status
+    return jsonify({
+        'processes': list_processes(),
+        'backends': _backend_status(),
+    })
+
+
+@app.route('/api/atlantean/runtime/start', methods=['POST'])
+def runtime_start():
+    """Start an inference backend.
+
+    Request body::
+
+        {
+            "backend": "ollama" | "llama.cpp",
+            "port": 11434,
+            "model_path": "/path/to/model.gguf",   // llama.cpp only
+            "n_gpu_layers": 32,
+            "ctx_size": 4096
+        }
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    backend = str(data.get('backend') or 'ollama').strip()
+    port = int(data.get('port') or (11434 if backend == 'ollama' else 8080))
+
+    if not is_port_free(port):
+        # Something already on that port
+        return jsonify({'success': True, 'message': f'Port {port} already in use (may already be running)', 'port': port})
+
+    try:
+        if backend == 'ollama':
+            proc = start_ollama(port=port)
+            alive = wait_for_port(port, timeout=15.0)
+            return jsonify({'success': alive, 'port': port, 'pid': proc.pid})
+        elif backend in ('llama.cpp', 'llamacpp'):
+            model_path = str(data.get('model_path') or '')
+            if not model_path:
+                return jsonify({'error': 'model_path required for llama.cpp'}), 400
+            n_gpu = int(data.get('n_gpu_layers') or 0)
+            ctx = int(data.get('ctx_size') or 4096)
+            proc = start_llamacpp_server(model_path, port=port,
+                                         n_gpu_layers=n_gpu, ctx_size=ctx)
+            alive = wait_for_port(port, timeout=20.0)
+            return jsonify({'success': alive, 'port': port, 'pid': proc.pid})
+        else:
+            return jsonify({'error': f'Unknown backend: {backend}'}), 400
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 503
+    except Exception as e:
+        return jsonify({'error': f'Failed to start {backend}: {e}'}), 500
+
+
+@app.route('/api/atlantean/runtime/stop', methods=['POST'])
+def runtime_stop():
+    """Stop a managed inference process.
+
+    Request body: ``{"name": "ollama"}`` or ``{"name": "llamacpp:8080"}``
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    name = str(data.get('name') or 'ollama').strip()
+    ok = stop_process(name)
+    return jsonify({'success': ok, 'name': name})
+
+
+@app.route('/api/atlantean/runtime/install', methods=['POST'])
+def runtime_install():
+    """Install a backend binary.
+
+    Request body: ``{"backend": "ollama" | "llama.cpp", "platform_key": "linux-cuda-cu12"}``
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    backend = str(data.get('backend') or 'ollama').strip()
+    platform_key = data.get('platform_key')
+    messages = []
+
+    def _log(msg: str) -> None:
+        messages.append(msg)
+
+    if backend == 'ollama':
+        result = _install_ollama(on_progress=_log)
+    elif backend in ('llama.cpp', 'llamacpp'):
+        probe = _hw_full_probe()
+        result = _install_llamacpp(
+            platform_key=platform_key,
+            on_progress=_log,
+            gpus=probe.get('gpus', []),
+        )
+    else:
+        return jsonify({'error': f'Unknown backend: {backend}'}), 400
+
+    result['log'] = messages
+    return jsonify(result)
+
+
+@app.route('/api/atlantean/models/list', methods=['GET'])
+def models_list():
+    """List all locally available models grouped by type."""
+    voice_dir = str(request.args.get('voice_dir') or PIPER_VOICE_DIR)
+    models = list_all_models(voice_dir=voice_dir)
+    counts = {k: len(v) for k, v in models.items()}
+    return jsonify({'models': models, 'counts': counts})
+
+
+@app.route('/api/atlantean/models/pull', methods=['POST'])
+def models_pull():
+    """Pull an Ollama model and stream progress as Server-Sent Events.
+
+    Request body: ``{"model": "llama3.1:8b-instruct-q4_K_M"}``
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    model_name = str(data.get('model') or '').strip()
+    if not model_name:
+        return jsonify({'error': 'model name required'}), 400
+
+    import re as _re
+    if not _re.match(r'^[\w.:\-/]+$', model_name):
+        return jsonify({'error': 'Invalid model name'}), 400
+
+    def _sse_stream():
+        for event in pull_ollama_model(model_name):
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return app.response_class(
+        _sse_stream(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+        },
+    )
+
+
+@app.route('/api/atlantean/models/pull/progress', methods=['GET'])
+def models_pull_progress():
+    """Return latest progress for an in-flight model pull."""
+    model_name = request.args.get('model', '')
+    progress = get_pull_progress(model_name)
+    if progress is None:
+        return jsonify({'status': 'idle', 'model': model_name})
+    return jsonify(progress)
+
+
+@app.route('/api/atlantean/models/import', methods=['POST'])
+def models_import():
+    """Import a local GGUF file into Ollama.
+
+    Request body: ``{"path": "/absolute/path/to/model.gguf", "name": "my-model"}``
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    path = str(data.get('path') or '').strip()
+    name = data.get('name')
+    if not path:
+        return jsonify({'error': 'path required'}), 400
+    result = import_gguf_to_ollama(path, model_name=name)
+    return jsonify(result)
+
+
+@app.route('/api/atlantean/models/delete', methods=['POST'])
+def models_delete():
+    """Delete an Ollama model.
+
+    Request body: ``{"model": "llama3.1:8b"}``
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    model_name = str(data.get('model') or '').strip()
+    if not model_name:
+        return jsonify({'error': 'model name required'}), 400
+    result = delete_ollama_model(model_name)
+    return jsonify(result)
+
+
+@app.route('/api/atlantean/ports/check', methods=['GET'])
+def ports_check():
+    """Check if a TCP port is free.
+
+    Query params: ``?port=11434`` or ``?ports=11434,8080``
+    """
+    single = request.args.get('port')
+    multi  = request.args.get('ports', '')
+
+    ports_to_check = []
+    if single:
+        ports_to_check.append(int(single))
+    if multi:
+        for p in multi.split(','):
+            try:
+                ports_to_check.append(int(p.strip()))
+            except ValueError:
+                pass
+    if not ports_to_check:
+        return jsonify({'error': 'Provide ?port=N or ?ports=N1,N2'}), 400
+
+    results = {p: {'free': is_port_free(p), 'port': p} for p in ports_to_check}
+    return jsonify({'ports': results})
 
 
 # ========== Health Check ==========

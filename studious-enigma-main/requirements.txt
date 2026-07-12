@@ -1,6 +1,7 @@
 flask==3.0.0
 flask-cors==4.0.0
-google-genai==0.8.0
+# google-genai is OPTIONAL — only needed if cloud escalation is enabled.
+# Install separately: pip install google-genai==0.8.0
 python-dotenv==1.0.0
 numpy==1.26.3
 torch==2.2.0
