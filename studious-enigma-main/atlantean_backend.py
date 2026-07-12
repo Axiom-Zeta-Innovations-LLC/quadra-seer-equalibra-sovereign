@@ -210,7 +210,7 @@ else:
     print(f"🌐 Backend bound to {ATLANTEAN_BIND_HOST} — ensure firewall rules are in place")
 
 # Verify model file checksums at startup (warning only, does not abort).
-verify_model_files_on_startup(piper_voice_dir=PIPER_VOICE_DIR, piper_voice=PIPER_VOICE)
+# NOTE: must be placed AFTER PIPER_VOICE and PIPER_VOICE_DIR are defined below.
 
 # Step 31 — Local offline voice pipeline.
 WHISPER_MODEL_SIZE = os.getenv('ATLANTEAN_WHISPER_MODEL', 'base').strip()
@@ -219,6 +219,9 @@ WHISPER_COMPUTE_TYPE = os.getenv('ATLANTEAN_WHISPER_COMPUTE_TYPE', 'int8').strip
 WHISPER_LANGUAGE: str | None = os.getenv('ATLANTEAN_WHISPER_LANGUAGE') or None
 PIPER_VOICE = os.getenv('ATLANTEAN_PIPER_VOICE', 'en_US-lessac-medium').strip()
 PIPER_VOICE_DIR = os.getenv('ATLANTEAN_PIPER_VOICE_DIR', './voices').strip()
+
+# Now that PIPER_VOICE / PIPER_VOICE_DIR are defined, run the checksum probe.
+verify_model_files_on_startup(piper_voice_dir=PIPER_VOICE_DIR, piper_voice=PIPER_VOICE)
 
 _local_transcriber: LocalWhisperTranscriber | None = None
 _local_tts: LocalPiperTts | None = None
@@ -1990,7 +1993,11 @@ def query_stream():
     full_prompt = (f"{system_p}\n\nConversation:\n{history_ctx}\n\n"
                    f"Recalled facts:\n{facts_ctx}\n\nUser: {user_input}\nAssistant:")
 
-    tier = MODEL_TIER_SELECTOR.select('simple')
+    tier = MODEL_TIER_SELECTOR.select(
+        'simple',
+        hrm_budget_snapshot=None,
+        operator_preference=None,
+    )
     model_used = tier.selected_model or LOCAL_LLM_MODEL
 
     def _token_generator():
