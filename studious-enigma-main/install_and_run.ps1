@@ -146,7 +146,8 @@ if ($Reinstall -or -not (Test-Path $InstalledFlag)) {
     $PyMinor = [int](&$Py -c "import sys; print(sys.version_info.minor)")
     $TorchVer = if ($PyMinor -ge 12) { "torch==2.4.0" } else { "torch==2.2.0" }
     Log "Installing Python dependencies (torch CPU $TorchVer - may take a few minutes)..."
-    & $Pip install --quiet --upgrade pip
+    # Must use python -m pip (not pip.exe) to upgrade pip itself on Windows
+    & $Py -m pip install --quiet --upgrade pip
 
     # Exclude torch and optional heavy voice deps from base requirements
     $reqs = Get-Content "$ScriptDir\requirements.txt" |
