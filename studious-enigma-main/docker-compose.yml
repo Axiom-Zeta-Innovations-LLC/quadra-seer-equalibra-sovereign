@@ -50,8 +50,8 @@ services:
     ports:
       - "5001:5001"
     # Resource limits — adjust to Vault hardware capacity.
-    mem_limit: 8g
-    cpus: "4.0"
+    mem_limit: 4g
+    cpus: "1.5"
     pids_limit: 512
     depends_on:
       redis:
