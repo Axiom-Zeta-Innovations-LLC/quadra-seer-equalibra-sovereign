@@ -3344,6 +3344,148 @@ def ports_check():
     return jsonify({'ports': results})
 
 
+# ========== Operations Center ==========
+
+@app.route('/api/atlantean/operations/summary', methods=['GET'])
+@require_auth
+def operations_summary():
+    """Aggregated summary for the Operations Center Action Center."""
+    session_id = request.args.get('session_id', 'default')
+    try:
+        bridge = get_bridge()
+        status_data = bridge.get_status(session_id)
+    except Exception:
+        status_data = {}
+
+    redis_ok = REDIS_AVAILABLE
+    ollama_ok = False
+    try:
+        r = requests.get(LOCAL_LLM_URL.replace('/api/generate', '/'), timeout=2)
+        ollama_ok = r.status_code < 500
+    except Exception:
+        pass
+
+    return jsonify({
+        'session_id': session_id,
+        'backend_healthy': True,
+        'redis_available': redis_ok,
+        'ollama_available': ollama_ok,
+        'cold_memory_items': status_data.get('cold_memory_items', 0) if isinstance(status_data, dict) else 0,
+        'snapshot_count': 0,
+        'provider': normalize_provider_name(ATLANTEAN_LLM_PROVIDER) or 'local',
+        'cloud_escalation': ALLOW_CLOUD_ESCALATION,
+        'hardware_tier': ACTIVE_HARDWARE_TIER.tier_id,
+    })
+
+
+@app.route('/api/atlantean/privacy/settings', methods=['GET'])
+@require_auth
+def privacy_settings_get():
+    """Read privacy settings (Redis-backed per session, falls back to defaults)."""
+    session_id = request.args.get('session_id', 'default')
+    key = f'privacy_settings:{session_id}'
+    defaults = {
+        'localOnlyLock': False,
+        'askBeforeExternalModel': True,
+        'askBeforeExternalTool': True,
+        'telemetryDisabled': False,
+        'webAccessDisabled': False,
+        'redactPiiBeforeCloud': True,
+        'blockedProviders': [],
+        'autoDeleteTempFiles': True,
+        'encryptExportedMemories': True,
+        'sovereignLockdown': False,
+    }
+    if REDIS_AVAILABLE:
+        try:
+            raw = redis_client.get(key)
+            if raw:
+                import json as _json
+                saved = _json.loads(raw)
+                defaults.update(saved)
+        except Exception:
+            pass
+    return jsonify(defaults)
+
+
+@app.route('/api/atlantean/privacy/settings', methods=['PATCH'])
+@require_auth
+def privacy_settings_patch():
+    """Persist privacy setting changes."""
+    session_id = request.args.get('session_id') or request.json.get('session_id', 'default')
+    data = request.json or {}
+    data.pop('session_id', None)
+    if REDIS_AVAILABLE:
+        try:
+            import json as _json
+            key = f'privacy_settings:{session_id}'
+            existing = {}
+            raw = redis_client.get(key)
+            if raw:
+                existing = _json.loads(raw)
+            existing.update(data)
+            redis_client.set(key, _json.dumps(existing), ex=86400 * 30)
+        except Exception:
+            pass
+    return jsonify({'success': True})
+
+
+@app.route('/api/atlantean/privacy/lockdown', methods=['POST'])
+@require_auth
+def privacy_lockdown():
+    """Activate sovereign lockdown — blocks all cloud routing."""
+    session_id = (request.json or {}).get('session_id', 'default')
+    if REDIS_AVAILABLE:
+        try:
+            import json as _json
+            key = f'privacy_settings:{session_id}'
+            raw = redis_client.get(key)
+            existing = _json.loads(raw) if raw else {}
+            existing['sovereignLockdown'] = True
+            existing['localOnlyLock'] = True
+            redis_client.set(key, _json.dumps(existing), ex=86400 * 30)
+        except Exception:
+            pass
+    return jsonify({'success': True, 'lockdown': True})
+
+
+@app.route('/api/atlantean/privacy/purge-session', methods=['POST'])
+@require_auth
+def privacy_purge_session():
+    """Delete temporary session data from Redis."""
+    session_id = (request.json or {}).get('session_id', 'default')
+    purged = 0
+    if REDIS_AVAILABLE:
+        try:
+            patterns = [
+                f'temp:*:{session_id}',
+                f'ctx:{session_id}:*',
+                f'tool_calls:{session_id}:*',
+            ]
+            for pattern in patterns:
+                keys = redis_client.keys(pattern)
+                if keys:
+                    redis_client.delete(*keys)
+                    purged += len(keys)
+        except Exception:
+            pass
+    return jsonify({'success': True, 'purged_keys': purged, 'session_id': session_id})
+
+
+@app.route('/api/atlantean/tasks/current', methods=['GET'])
+@require_auth
+def tasks_current():
+    """Returns the current active task (stub — no task runner implemented yet)."""
+    return jsonify({'task': None, 'queue_depth': 0})
+
+
+@app.route('/api/atlantean/memory/proposals', methods=['GET'])
+@require_auth
+def memory_proposals():
+    """Returns pending memory proposals (stub — no proposal queue implemented yet)."""
+    return jsonify({'proposals': [], 'pending': 0})
+
+
 # ========== Health Check ==========
 
 @app.route('/health', methods=['GET'])

@@ -8,6 +8,7 @@ import TypingIndicator from './TypingIndicator';
 import Icon from './Icon';
 import SimulationVisualizer from './SimulationVisualizer';
 import AtlanteanStatusPanel from './AtlanteanStatusPanel';
+import OperationsPanel from './OperationsPanel';
 import NeuralArchives from './NeuralArchives';
 import HardwarePanel from './HardwarePanel';
 import ProfileModal from './ProfileModal';
@@ -58,7 +59,7 @@ const ChatInterface: React.FC = () => {
   const [isProfileModalOpen, setProfileModalOpen] = useState(false);
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>(ThinkingMode.STANDARD);
   const [audioState, setAudioState] = useState(getAudioState());
-  const [sidebarTab, setSidebarTab] = useState<'telemetry' | 'status' | 'archives' | 'hardware'>('telemetry');
+  const [sidebarTab, setSidebarTab] = useState<'telemetry' | 'operations' | 'archives' | 'hardware'>('telemetry');
   const [ttsVoice, setTtsVoiceState] = useState<TtsVoice>(getTtsVoice());
   const [convoId, setConvoId] = useState<string>(createAndSetStableSessionId());
   const [simulationWrites, setSimulationWrites] = useState(0);
@@ -912,10 +913,10 @@ const ChatInterface: React.FC = () => {
             Diagnostics
           </button>
           <button 
-            onClick={() => setSidebarTab('status')}
-            className={`flex-1 py-3 text-[9px] font-bold uppercase tracking-[0.2em] rounded-lg transition-all ${sidebarTab === 'status' ? 'bg-white/10 text-[var(--color-primary)]' : 'text-gray-500 hover:text-gray-300'}`}
+            onClick={() => setSidebarTab('operations')}
+            className={`flex-1 py-3 text-[9px] font-bold uppercase tracking-[0.2em] rounded-lg transition-all ${sidebarTab === 'operations' ? 'bg-white/10 text-[var(--color-primary)]' : 'text-gray-500 hover:text-gray-300'}`}
           >
-            Status
+            Operations
           </button>
           <button 
             onClick={() => setSidebarTab('archives')}
@@ -938,14 +939,22 @@ const ChatInterface: React.FC = () => {
             recallSimulations={recallSimulations}
             simulationWrites={simulationWrites}
           />
-        ) : sidebarTab === 'status' ? (
-          <AtlanteanStatusPanel
-            status={status}
-            fields={fields}
-            isLoading={atlanteanLoading}
-            isRefreshingFields={isRefreshingFields}
-            refreshTelemetry={refreshTelemetry}
-          />
+        ) : sidebarTab === 'operations' ? (
+          <div className="flex-1 overflow-y-auto p-3 scrollbar-hide">
+            <OperationsPanel
+              status={status}
+              fields={fields}
+              isLoading={atlanteanLoading}
+              isRefreshingFields={isRefreshingFields}
+              refreshTelemetry={refreshTelemetry}
+              currentSessionId={convoId}
+              onSnapshotRestored={handleSnapshotRestored}
+              onSelectSnapshot={setSelectedSnapshot}
+              onToast={msg => notify('info', msg, 3500)}
+              onOpenProfile={() => setProfileModalOpen(true)}
+              onExportSyncPackage={handleExportSyncPackage}
+            />
+          </div>
         ) : sidebarTab === 'hardware' ? (
           <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
             <HardwarePanel />
