@@ -192,6 +192,11 @@ else
     ok "Node.js dependencies already installed"
 fi
 
+# ── 7b. Build frontend ───────────────────────────────────────────────────────
+log "Building frontend..."
+npm run build
+ok "Frontend built"
+
 # ── 8. Write .env.local ──────────────────────────────────────────────────────
 log "Configuring environment..."
 ENV_FILE="$SCRIPT_DIR/.env.local"
@@ -241,12 +246,12 @@ fi
 # ── 9. Start services ────────────────────────────────────────────────────────
 PY_BACKEND_PORT="${PY_BACKEND_PORT:-5001}"
 PY_BACKEND_PID=""
-VITE_PID=""
+NODE_PID=""
 
 cleanup() {
     echo ""
     echo "🛑 Shutting down..."
-    [[ -n "$VITE_PID" ]] && kill "$VITE_PID" 2>/dev/null || true
+    [[ -n "$NODE_PID" ]] && kill "$NODE_PID" 2>/dev/null || true
     [[ -n "$PY_BACKEND_PID" ]] && kill "$PY_BACKEND_PID" 2>/dev/null || true
     wait 2>/dev/null || true
     echo "👋 Stopped."
@@ -285,10 +290,10 @@ echo ""
 # Open browser (best-effort)
 URL="http://127.0.0.1:3000"
 if command -v xdg-open &>/dev/null; then
-    (sleep 5 && xdg-open "$URL") &
+    (sleep 3 && xdg-open "$URL") &
 elif command -v open &>/dev/null; then
-    (sleep 5 && open "$URL") &
+    (sleep 3 && open "$URL") &
 fi
 
-# Run Vite dev server in foreground
-npm run dev
+# Serve built frontend in foreground
+npm start

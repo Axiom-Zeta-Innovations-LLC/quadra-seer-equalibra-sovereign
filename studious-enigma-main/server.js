@@ -1,6 +1,8 @@
 
 import express from 'express';
-import cors from 'cors';
+import { request as nodeRequest } from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 
@@ -8,51 +10,43 @@ import fetch from 'node-fetch';
 dotenv.config({ path: '.env.local' });
 dotenv.config();
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const port = 3001;
+const port = parseInt(process.env.PORT || '3000', 10);
 
-// --- CORS Configuration ---
-// Restrict CORS to specific origins (development and production)
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173').split(',').map(o => o.trim());
+// Python backend — matches VITE_ATLANTEAN_PROXY_TARGET in .env.local
+const backendOrigin = process.env.VITE_ATLANTEAN_PROXY_TARGET || 'http://127.0.0.1:5001';
+const _bu = new URL(backendOrigin);
+const backendHost = _bu.hostname;
+const backendPort = parseInt(_bu.port || '5001', 10);
 
-const corsOptions = {
-    origin: (origin, callback) => {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error(`CORS policy: Origin ${origin} not allowed`));
+// Transparent proxy — streams SSE and chunked responses without buffering
+function proxyToBackend(req, res) {
+    const headers = { ...req.headers, host: `${backendHost}:${backendPort}` };
+    const proxyReq = nodeRequest(
+        { hostname: backendHost, port: backendPort, path: req.url, method: req.method, headers },
+        (proxyRes) => {
+            res.writeHead(proxyRes.statusCode, proxyRes.headers);
+            proxyRes.pipe(res, { end: true });
         }
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    maxAge: 3600 // Preflight cache duration in seconds
-};
+    );
+    proxyReq.on('error', () => {
+        if (!res.headersSent) res.status(502).json({ error: 'Backend unavailable' });
+    });
+    req.pipe(proxyReq, { end: true });
+}
 
-// --- Middleware ---
-app.use(cors(corsOptions));
-app.use(express.json({ limit: '10mb' })); // Allow larger payloads for file uploads
+// Proxy Python backend routes BEFORE body-parsing middleware
+app.all('/api/atlantean', proxyToBackend);
+app.all('/api/atlantean/*', proxyToBackend);
+app.all('/health', proxyToBackend);
+
+// --- Middleware for local routes ---
+app.use(express.json({ limit: '10mb' }));
 
 // --- API Key and Service Initialization ---
-// Gemini is a consent-gated cloud option — this server no longer requires it.
 const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
-// Sovereign/offline mode disables all outbound API calls, including ElevenLabs.
 const allowOutboundNetwork = process.env.ALLOW_OUTBOUND_NETWORK === '1';
-
-
-// --- Basic Routes ---
-app.get('/', (_req, res) => {
-    res.json({
-        status: 'ok',
-        service: 'Q.M.A.I. backend',
-        message: 'Primary route: POST /api/atlantean/query (Python backend). Utilities: POST /api/tts (ElevenLabs). /api/chat and /api/summarize have been removed.'
-    });
-});
-
-app.get('/health', (_req, res) => {
-    res.json({ status: 'ok' });
-});
 
 
 // --- API Endpoints ---
@@ -128,8 +122,13 @@ app.post('/api/summarize', (_req, res) => {
     });
 });
 
+// --- Serve built frontend ---
+const distDir = path.join(__dirname, 'dist');
+app.use(express.static(distDir));
+// SPA fallback — send index.html for any route React Router handles
+app.get('*', (_req, res) => res.sendFile(path.join(distDir, 'index.html')));
 
 // --- Server Start ---
-app.listen(port, () => {
-    console.log(`Q.M.A.I. backend server listening on port ${port}`);
+app.listen(port, '127.0.0.1', () => {
+    console.log(`Atlantean running at http://127.0.0.1:${port}`);
 });

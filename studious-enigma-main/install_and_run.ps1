@@ -210,6 +210,12 @@ if ($Reinstall -or -not (Test-Path "$ScriptDir\node_modules")) {
     Ok "Node.js dependencies already installed"
 }
 
+# ── 7b. Build frontend ───────────────────────────────────────────────────────
+Log "Building frontend..."
+npm run build
+if ($LASTEXITCODE -ne 0) { Fail "Frontend build failed." }
+Ok "Frontend built"
+
 # ── 8. Write .env.local ──────────────────────────────────────────────────────
 Log "Configuring environment..."
 $EnvFile = Join-Path $ScriptDir ".env.local"
@@ -323,11 +329,11 @@ Write-Host "╚═════════════════════�
 Write-Host ""
 
 Start-Process -FilePath "powershell" -ArgumentList `
-    "-Command", "Start-Sleep 5; Start-Process 'http://127.0.0.1:3000'" `
+    "-Command", "Start-Sleep 3; Start-Process 'http://127.0.0.1:3000'" `
     -WindowStyle Hidden
 
-# Run Vite in foreground
-npm run dev
+# Serve built frontend in foreground
+npm start
 
 # Cleanup on exit
 if (-not $BackendProc.HasExited) {
