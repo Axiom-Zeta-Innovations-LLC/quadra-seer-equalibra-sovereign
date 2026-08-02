@@ -15,7 +15,7 @@ param(
 )
 
 Set-StrictMode -Version Latest
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
@@ -134,11 +134,13 @@ if ($Reinstall -and (Test-Path $VenvDir)) {
 
 if (-not (Test-Path $VenvDir)) {
     & $PythonBin -m venv $VenvDir
+    if ($LASTEXITCODE -ne 0) { Fail "Failed to create Python virtual environment." }
     Ok "Created virtual environment"
 }
 
 $Py  = Join-Path $VenvDir "Scripts\python.exe"
 $Pip = Join-Path $VenvDir "Scripts\pip.exe"
+if (-not (Test-Path $Py)) { Fail "Virtual environment is broken (python.exe missing). Delete .venv and re-run." }
 $InstalledFlag = Join-Path $VenvDir ".installed"
 
 if ($Reinstall -or -not (Test-Path $InstalledFlag)) {
@@ -183,6 +185,7 @@ if ($Reinstall -or -not (Test-Path $InstalledFlag)) {
 Log "Installing Node.js dependencies..."
 if ($Reinstall -or -not (Test-Path "$ScriptDir\node_modules")) {
     npm install --silent
+    if ($LASTEXITCODE -ne 0) { Fail "npm install failed. Check Node.js version and internet connection." }
     Ok "Node.js dependencies installed"
 } else {
     Ok "Node.js dependencies already installed"
@@ -227,6 +230,15 @@ PY_BACKEND_PORT=5001
 Log "Starting Atlantean backend..."
 $BackendPort = 5001
 $BackendLog  = "$ScriptDir\backend.log"
+
+# Kill any stale process still holding port 5001
+$stale = Get-NetTCPConnection -LocalPort $BackendPort -ErrorAction SilentlyContinue
+if ($stale) {
+    $stalePid = ($stale | Select-Object -First 1).OwningProcess
+    Stop-Process -Id $stalePid -Force -ErrorAction SilentlyContinue
+    Warn "Killed stale process (PID $stalePid) on port $BackendPort"
+    Start-Sleep -Seconds 1
+}
 
 # Run in background, redirect output to log file so errors are always visible
 $backendScript = '"' + "$ScriptDir\atlantean_backend.py" + '"'
