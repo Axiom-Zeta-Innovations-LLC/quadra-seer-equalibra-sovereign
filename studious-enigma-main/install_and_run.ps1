@@ -212,7 +212,7 @@ $BackendLog  = "$ScriptDir\backend.log"
 
 # Run in background, redirect output to log file so errors are always visible
 $BackendProc = Start-Process -FilePath $Py `
-    -ArgumentList "$ScriptDir\atlantean_backend.py" `
+    -ArgumentList "`"$ScriptDir\atlantean_backend.py`"" `
     -WorkingDirectory $ScriptDir `
     -RedirectStandardOutput $BackendLog `
     -RedirectStandardError  "$ScriptDir\backend_err.log" `
