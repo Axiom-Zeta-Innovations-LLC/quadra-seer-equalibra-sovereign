@@ -37,7 +37,8 @@ app.use(express.json({ limit: '10mb' })); // Allow larger payloads for file uplo
 // --- API Key and Service Initialization ---
 // Gemini is a consent-gated cloud option — this server no longer requires it.
 const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
-
+// Sovereign/offline mode disables all outbound API calls, including ElevenLabs.
+const allowOutboundNetwork = process.env.ALLOW_OUTBOUND_NETWORK === '1';
 
 
 // --- Basic Routes ---
@@ -75,6 +76,12 @@ app.post('/api/tts', async (req, res) => {
     const { text } = req.body;
     const voiceId = "21m00Tcm4TlvDq8ikWAM"; // Example voice
     const apiUrl = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`;
+
+    if (!allowOutboundNetwork) {
+        return res.status(403).json({
+            error: 'ElevenLabs TTS is disabled in sovereign/offline mode (ALLOW_OUTBOUND_NETWORK=0). Use local Piper TTS via the Python backend.'
+        });
+    }
 
     if (!elevenLabsApiKey || elevenLabsApiKey === 'mock_key') {
          console.warn("TTS request failed: ELEVENLABS_API_KEY not configured on server.");

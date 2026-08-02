@@ -15,3 +15,13 @@ psutil>=5.9.0
 # Step 31 — local offline voice pipeline (install after base deps)
 faster-whisper==1.1.1
 piper-tts>=1.0.0
+# Sovereign Workspace — semantic search, automation, indexing
+lancedb>=0.5.0
+sentence-transformers>=2.6.0
+pyarrow>=14.0.0
+watchdog>=4.0.0
+pydantic>=2.0.0
+# Optional — document extraction
+pypdf>=3.0.0
+pdfplumber>=0.10.0
+python-docx>=1.0.0

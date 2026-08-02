@@ -45,6 +45,35 @@ def _get_genai_client(api_key: str):
             "Cloud escalation requires: pip install google-genai"
         ) from exc
 from dotenv import load_dotenv
+
+# Lazy-import workspace modules to allow degraded startup when deps are missing
+try:
+    from atlantean_core.semantic_search import index_manager as _idx_mgr
+    from atlantean_core.semantic_search import search_service as _search_svc
+    from atlantean_core.semantic_search.path_policy import (
+        validate_index_path as _ss_validate,
+        is_allowed_file as _ss_allowed,
+    )
+    _SEMANTIC_SEARCH_AVAILABLE = True
+except Exception as _ss_ex:
+    _SEMANTIC_SEARCH_AVAILABLE = False
+    print(f'ℹ️  Semantic search unavailable: {_ss_ex}')
+
+try:
+    from atlantean_core.automation import (
+        planner as _auto_planner,
+        executor as _auto_exec,
+        approvals as _auto_approvals,
+        quarantine as _auto_quarantine,
+        audit as _auto_audit,
+        path_policy as _auto_path,
+        schemas as _auto_schemas,
+    )
+    _AUTOMATION_AVAILABLE = True
+except Exception as _auto_ex:
+    _AUTOMATION_AVAILABLE = False
+    print(f'ℹ️  Automation module unavailable: {_auto_ex}')
+
 from event_normalization import (
     normalize_disconnect_reason,
     normalize_learning_event_payload,
@@ -142,6 +171,13 @@ LOCAL_CONTEXT_WINDOW = int(os.getenv('ATLANTEAN_LOCAL_CONTEXT_WINDOW', '8192'))
 ALLOW_OUTBOUND_NETWORK = os.getenv('ALLOW_OUTBOUND_NETWORK', '0') == '1'
 ALLOW_CLOUD_ESCALATION = os.getenv('ALLOW_CLOUD_ESCALATION', '0') == '1'
 REQUIRE_CLOUD_ESCALATION_CONSENT = os.getenv('REQUIRE_CLOUD_ESCALATION_CONSENT', '1') == '1'
+
+# Voice sovereignty flags
+ALLOW_BROWSER_SPEECH_FALLBACK = os.getenv('ATLANTEAN_ALLOW_BROWSER_SPEECH_FALLBACK', '0') == '1'
+REQUIRE_LOCAL_STT = os.getenv('ATLANTEAN_REQUIRE_LOCAL_STT', '1') == '1'
+
+# Journal
+JOURNAL_BASE_DIR = os.path.abspath(os.getenv('ATLANTEAN_JOURNAL_DIR', './vault_data/journal'))
 VERIFY_LEDGER_ON_RESTORE = os.getenv('ATLANTEAN_VERIFY_LEDGER_ON_RESTORE', '1') == '1'
 VERIFY_LEDGER_ON_SYNC_MERGE = os.getenv('ATLANTEAN_VERIFY_LEDGER_ON_SYNC_MERGE', '1') == '1'
 VERIFY_SNAPSHOT_TAMPER_EVIDENCE = os.getenv('ATLANTEAN_VERIFY_SNAPSHOT_TAMPER_EVIDENCE', '1') == '1'
@@ -3017,6 +3053,11 @@ def voice_capabilities():
             'piper_voice': PIPER_VOICE,
             'piper_voice_dir': PIPER_VOICE_DIR,
         },
+        'sovereignty': {
+            'allow_browser_speech_fallback': ALLOW_BROWSER_SPEECH_FALLBACK,
+            'require_local_stt': REQUIRE_LOCAL_STT,
+            'allow_outbound_network': ALLOW_OUTBOUND_NETWORK,
+        },
     })
 
 
@@ -3344,7 +3385,506 @@ def ports_check():
     return jsonify({'ports': results})
 
 
-# ========== Operations Center ==========
+# ========== Privacy Status ==========
+
+@app.route('/api/atlantean/privacy/status', methods=['GET'])
+@require_auth
+def privacy_status():
+    """Authoritative privacy/network status for the frontend indicator."""
+    from atlantean_core.semantic_search.config import (
+        SEMANTIC_SEARCH_ENABLED, EMBEDDING_MODEL, VECTOR_BACKEND, VECTOR_DB_PATH
+    ) if _SEMANTIC_SEARCH_AVAILABLE else (None, None, None, None)
+    stt = check_whisper_available()
+    return jsonify({
+        'outbound_network': ALLOW_OUTBOUND_NETWORK,
+        'cloud_escalation': ALLOW_CLOUD_ESCALATION,
+        'allow_browser_speech_fallback': ALLOW_BROWSER_SPEECH_FALLBACK,
+        'require_local_stt': REQUIRE_LOCAL_STT,
+        'active_provider': normalize_provider_name(ATLANTEAN_LLM_PROVIDER) or 'local',
+        'stt_engine': 'local-whisper' if stt.get('available') else 'unavailable',
+        'embedding_model': EMBEDDING_MODEL if _SEMANTIC_SEARCH_AVAILABLE else None,
+        'vector_db_path': VECTOR_DB_PATH if _SEMANTIC_SEARCH_AVAILABLE else None,
+        'vector_backend': VECTOR_BACKEND if _SEMANTIC_SEARCH_AVAILABLE else None,
+        'journal_dir': JOURNAL_BASE_DIR,
+        'automation_roots': _auto_path.get_approved_roots() if _AUTOMATION_AVAILABLE else [],
+        'semantic_search_available': _SEMANTIC_SEARCH_AVAILABLE,
+        'automation_available': _AUTOMATION_AVAILABLE,
+        'network_mode': (
+            'offline' if not ALLOW_OUTBOUND_NETWORK
+            else ('local-network-only' if not ALLOW_CLOUD_ESCALATION else 'external-access-enabled')
+        ),
+    })
+
+
+# ========== Semantic File Search ==========
+
+def _search_unavailable():
+    return jsonify({'error': 'Semantic search unavailable — run pip install lancedb sentence-transformers pyarrow'}), 503
+
+
+@app.route('/api/atlantean/search/status', methods=['GET'])
+@require_auth
+def search_status():
+    if not _SEMANTIC_SEARCH_AVAILABLE:
+        return jsonify({'available': False, 'reason': 'dependencies not installed'}), 200
+    return jsonify({'available': True, 'stats': _idx_mgr.get_index_stats()})
+
+
+@app.route('/api/atlantean/search/sources', methods=['GET'])
+@require_auth
+def search_sources():
+    if not _SEMANTIC_SEARCH_AVAILABLE:
+        return _search_unavailable()
+    return jsonify({'sources': _idx_mgr.list_sources()})
+
+
+@app.route('/api/atlantean/search/source/add', methods=['POST'])
+@require_auth
+def search_source_add():
+    if not _SEMANTIC_SEARCH_AVAILABLE:
+        return _search_unavailable()
+    body = request.get_json(force=True, silent=True) or {}
+    path = str(body.get('path', '')).strip()
+    if not path:
+        return jsonify({'error': 'path required'}), 400
+    try:
+        src = _idx_mgr.add_source(path, collection=body.get('collection', 'default'),
+                                  excluded_dirs=body.get('excluded_dirs'))
+        return jsonify({'success': True, 'source': src})
+    except (ValueError, PermissionError) as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@app.route('/api/atlantean/search/source/remove', methods=['POST'])
+@require_auth
+def search_source_remove():
+    if not _SEMANTIC_SEARCH_AVAILABLE:
+        return _search_unavailable()
+    body = request.get_json(force=True, silent=True) or {}
+    path = str(body.get('path', '')).strip()
+    removed = _idx_mgr.remove_source(path)
+    return jsonify({'success': removed})
+
+
+@app.route('/api/atlantean/search/index', methods=['POST'])
+@require_auth
+def search_index():
+    if not _SEMANTIC_SEARCH_AVAILABLE:
+        return _search_unavailable()
+    body = request.get_json(force=True, silent=True) or {}
+    path = str(body.get('path', '')).strip()
+    if not path:
+        return jsonify({'error': 'path required'}), 400
+    try:
+        job = _idx_mgr.start_index_job(path, force=bool(body.get('force', False)))
+        return jsonify({'job': {
+            'job_id': job.job_id, 'source_path': job.source_path,
+            'status': job.status, 'total_files': job.total_files,
+        }})
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@app.route('/api/atlantean/search/index/cancel', methods=['POST'])
+@require_auth
+def search_index_cancel():
+    if not _SEMANTIC_SEARCH_AVAILABLE:
+        return _search_unavailable()
+    _idx_mgr.cancel_active_job()
+    return jsonify({'success': True})
+
+
+@app.route('/api/atlantean/search/index/status', methods=['GET'])
+@require_auth
+def search_index_status():
+    if not _SEMANTIC_SEARCH_AVAILABLE:
+        return _search_unavailable()
+    return jsonify({'job': _idx_mgr.get_active_job()})
+
+
+@app.route('/api/atlantean/search/query', methods=['POST'])
+@require_auth
+def search_query():
+    if not _SEMANTIC_SEARCH_AVAILABLE:
+        return _search_unavailable()
+    body = request.get_json(force=True, silent=True) or {}
+    query = str(body.get('query', '')).strip()
+    if not query:
+        return jsonify({'error': 'query required'}), 400
+    mode = str(body.get('mode', 'hybrid')).lower()
+    limit = min(int(body.get('limit', 10)), 50)
+    kwargs = {
+        'limit': limit,
+        'file_types': body.get('file_types'),
+        'collection': body.get('collection'),
+        'source_prefix': body.get('source_prefix'),
+    }
+    if mode == 'semantic':
+        results = _search_svc.semantic_search(query, **kwargs)
+    elif mode == 'keyword':
+        results = _search_svc.keyword_search(query, **kwargs)
+    else:
+        results = _search_svc.hybrid_search(query, **kwargs)
+    return jsonify({'query': query, 'mode': mode, 'results': results, 'count': len(results)})
+
+
+@app.route('/api/atlantean/search/open', methods=['POST'])
+@require_auth
+def search_open_file():
+    """Open a file in the OS default application (non-blocking)."""
+    body = request.get_json(force=True, silent=True) or {}
+    path = str(body.get('path', '')).strip()
+    if not path:
+        return jsonify({'error': 'path required'}), 400
+    try:
+        real = _ss_validate(path) if _SEMANTIC_SEARCH_AVAILABLE else os.path.realpath(path)
+        if not os.path.exists(real):
+            return jsonify({'error': 'File not found'}), 404
+        import subprocess, sys as _sys
+        if _sys.platform == 'win32':
+            os.startfile(real)
+        elif _sys.platform == 'darwin':
+            subprocess.Popen(['open', real])
+        else:
+            subprocess.Popen(['xdg-open', real])
+        return jsonify({'success': True, 'path': real})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/atlantean/search/reveal', methods=['POST'])
+@require_auth
+def search_reveal_file():
+    """Reveal a file in the OS file manager."""
+    body = request.get_json(force=True, silent=True) or {}
+    path = str(body.get('path', '')).strip()
+    if not path:
+        return jsonify({'error': 'path required'}), 400
+    try:
+        real = os.path.realpath(path)
+        if not os.path.exists(real):
+            return jsonify({'error': 'File not found'}), 404
+        import subprocess, sys as _sys
+        if _sys.platform == 'win32':
+            subprocess.Popen(['explorer', '/select,', real])
+        elif _sys.platform == 'darwin':
+            subprocess.Popen(['open', '-R', real])
+        else:
+            subprocess.Popen(['xdg-open', os.path.dirname(real)])
+        return jsonify({'success': True, 'path': real})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/atlantean/search/index', methods=['DELETE'])
+@require_auth
+def search_clear_index():
+    if not _SEMANTIC_SEARCH_AVAILABLE:
+        return _search_unavailable()
+    from atlantean_core.semantic_search import vector_store as _vs
+    _vs.clear_all()
+    return jsonify({'success': True})
+
+
+# ========== Journal ==========
+
+def _journal_path_for_date(date_str: str) -> str:
+    """Resolve safe journal path for YYYY-MM-DD. Raises ValueError if unsafe."""
+    import re
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', date_str):
+        raise ValueError('Invalid date format, expected YYYY-MM-DD')
+    year = date_str[:4]
+    dest = os.path.realpath(os.path.join(JOURNAL_BASE_DIR, year, f'{date_str}.md'))
+    base = os.path.realpath(JOURNAL_BASE_DIR)
+    if not dest.startswith(base + os.sep) and dest != base:
+        raise ValueError('Journal path traversal attempt')
+    return dest
+
+
+@app.route('/api/atlantean/journal/append', methods=['POST'])
+@require_auth
+def journal_append():
+    """Append a transcript or note entry to today's (or specified) journal."""
+    body = request.get_json(force=True, silent=True) or {}
+    date_str = str(body.get('date', '')).strip()
+    if not date_str:
+        from datetime import date
+        date_str = date.today().isoformat()
+    try:
+        jpath = _journal_path_for_date(date_str)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+    title = str(body.get('title', '')).strip()
+    content = str(body.get('content', '')).strip()
+    tags = body.get('tags', [])
+    source_type = str(body.get('source_type', 'note')).strip()
+
+    if not content:
+        return jsonify({'error': 'content required'}), 400
+
+    import time as _time
+    from datetime import datetime
+    timestamp = datetime.now().strftime('%I:%M %p').lstrip('0')
+    header_parts = [f'## {timestamp}']
+    if title:
+        header_parts.append(f'— {title}')
+    header = ' '.join(header_parts)
+
+    entry_parts = [header]
+    if tags:
+        entry_parts.append('Tags: ' + ' '.join(f'#{t.strip("#")}' for t in tags))
+    entry_parts.append('')
+    entry_parts.append(content)
+    entry_parts.append('')
+    entry_text = '\n'.join(entry_parts) + '\n'
+
+    os.makedirs(os.path.dirname(jpath), exist_ok=True)
+    if not os.path.exists(jpath):
+        from datetime import date
+        day_header = f'# Journal — {date_str}\n\n'
+        with open(jpath, 'w', encoding='utf-8') as f:
+            f.write(day_header)
+    with open(jpath, 'a', encoding='utf-8') as f:
+        f.write(entry_text)
+
+    return jsonify({'success': True, 'path': jpath, 'date': date_str})
+
+
+@app.route('/api/atlantean/journal/read', methods=['GET'])
+@require_auth
+def journal_read():
+    from datetime import date
+    date_str = request.args.get('date', date.today().isoformat())
+    try:
+        jpath = _journal_path_for_date(date_str)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    if not os.path.exists(jpath):
+        return jsonify({'date': date_str, 'content': '', 'exists': False})
+    with open(jpath, 'r', encoding='utf-8') as f:
+        content = f.read()
+    return jsonify({'date': date_str, 'content': content, 'exists': True, 'path': jpath})
+
+
+@app.route('/api/atlantean/journal/list', methods=['GET'])
+@require_auth
+def journal_list():
+    entries = []
+    if os.path.isdir(JOURNAL_BASE_DIR):
+        for root, _, files in os.walk(JOURNAL_BASE_DIR):
+            for fname in sorted(files):
+                if fname.endswith('.md') and not fname.startswith('manifest'):
+                    fpath = os.path.join(root, fname)
+                    entries.append({
+                        'filename': fname,
+                        'path': fpath,
+                        'date': os.path.splitext(fname)[0],
+                        'size': os.path.getsize(fpath),
+                        'modified': os.path.getmtime(fpath),
+                    })
+    entries.sort(key=lambda x: x['date'], reverse=True)
+    return jsonify({'entries': entries[:60]})
+
+
+# ========== Automation ==========
+
+def _auto_unavailable():
+    return jsonify({'error': 'Automation module unavailable'}), 503
+
+
+_active_plans: dict = {}   # plan_id → AutomationPlan
+
+
+@app.route('/api/atlantean/automation/capabilities', methods=['GET'])
+@require_auth
+def automation_capabilities():
+    if not _AUTOMATION_AVAILABLE:
+        return jsonify({'available': False}), 200
+    return jsonify({
+        'available': True,
+        'action_types': list(_auto_schemas.ALLOWED_ACTION_TYPES),
+        'risk_labels': _auto_schemas.RISK_LABELS,
+        'approved_roots': _auto_path.get_approved_roots(),
+        'quarantine_count': len(_auto_quarantine.list_quarantine()),
+    })
+
+
+@app.route('/api/atlantean/automation/approved-roots', methods=['GET'])
+@require_auth
+def automation_get_roots():
+    if not _AUTOMATION_AVAILABLE:
+        return _auto_unavailable()
+    return jsonify({'roots': _auto_path.get_approved_roots()})
+
+
+@app.route('/api/atlantean/automation/approved-roots/add', methods=['POST'])
+@require_auth
+def automation_add_root():
+    if not _AUTOMATION_AVAILABLE:
+        return _auto_unavailable()
+    body = request.get_json(force=True, silent=True) or {}
+    path = str(body.get('path', '')).strip()
+    if not path:
+        return jsonify({'error': 'path required'}), 400
+    try:
+        real = _auto_path.add_approved_root(path)
+        return jsonify({'success': True, 'path': real, 'roots': _auto_path.get_approved_roots()})
+    except (ValueError, PermissionError) as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@app.route('/api/atlantean/automation/approved-roots/remove', methods=['POST'])
+@require_auth
+def automation_remove_root():
+    if not _AUTOMATION_AVAILABLE:
+        return _auto_unavailable()
+    body = request.get_json(force=True, silent=True) or {}
+    path = str(body.get('path', '')).strip()
+    removed = _auto_path.remove_approved_root(path)
+    return jsonify({'success': removed, 'roots': _auto_path.get_approved_roots()})
+
+
+@app.route('/api/atlantean/automation/plan', methods=['POST'])
+@require_auth
+def automation_plan():
+    """Accept a user-provided plan JSON or natural-language request."""
+    if not _AUTOMATION_AVAILABLE:
+        return _auto_unavailable()
+    body = request.get_json(force=True, silent=True) or {}
+    session_id = str(body.get('session_id', 'default'))
+    try:
+        if 'actions' in body:
+            plan = _auto_planner.make_plan_from_json(body, session_id)
+        else:
+            return jsonify({'error': 'actions array required'}), 400
+        _active_plans[plan.plan_id] = plan
+        token = _auto_approvals.create_token(plan.plan_hash)
+        plan.approval_token = token
+        _auto_audit.log_plan_created(plan.plan_id, plan.plan_hash, plan.summary,
+                                     plan.risk_level, session_id)
+        d = plan.to_dict()
+        d['approval_token'] = token
+        return jsonify({'plan': d})
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@app.route('/api/atlantean/automation/approve', methods=['POST'])
+@require_auth
+def automation_approve():
+    if not _AUTOMATION_AVAILABLE:
+        return _auto_unavailable()
+    body = request.get_json(force=True, silent=True) or {}
+    plan_id = str(body.get('plan_id', ''))
+    token = str(body.get('approval_token', ''))
+    plan = _active_plans.get(plan_id)
+    if not plan:
+        return jsonify({'error': 'Plan not found or expired'}), 404
+    valid, reason = _auto_approvals.verify_token(token, plan.plan_hash)
+    if not valid:
+        return jsonify({'error': f'Approval failed: {reason}'}), 403
+    plan.approved = True
+    plan.approved_at = time.time()
+    _auto_audit.log_plan_approved(plan.plan_id, plan.plan_hash, plan.session_id)
+    return jsonify({'success': True, 'plan_id': plan_id})
+
+
+@app.route('/api/atlantean/automation/reject', methods=['POST'])
+@require_auth
+def automation_reject():
+    if not _AUTOMATION_AVAILABLE:
+        return _auto_unavailable()
+    body = request.get_json(force=True, silent=True) or {}
+    plan_id = str(body.get('plan_id', ''))
+    reason = str(body.get('reason', 'operator rejected'))
+    plan = _active_plans.pop(plan_id, None)
+    if plan:
+        _auto_audit.log_plan_rejected(plan.plan_id, plan.plan_hash, plan.session_id, reason)
+    return jsonify({'success': True})
+
+
+@app.route('/api/atlantean/automation/execute', methods=['POST'])
+@require_auth
+def automation_execute():
+    if not _AUTOMATION_AVAILABLE:
+        return _auto_unavailable()
+    body = request.get_json(force=True, silent=True) or {}
+    plan_id = str(body.get('plan_id', ''))
+    session_id = str(body.get('session_id', 'default'))
+    plan = _active_plans.get(plan_id)
+    if not plan:
+        return jsonify({'error': 'Plan not found or expired'}), 404
+    if not plan.approved:
+        return jsonify({'error': 'Plan not approved'}), 403
+
+    results = []
+    job_id = str(uuid.uuid4())
+    for action in plan.actions:
+        _auto_audit.log_execution_started(job_id, plan_id, action.type, session_id)
+        result = _auto_exec.execute_action(action, job_id)
+        result_hash = hashlib.sha256((result.output or '').encode()).hexdigest()[:16]
+        _auto_audit.log_execution_completed(job_id, plan_id, action.type,
+                                             result.status, result_hash, session_id)
+        for qp in result.files_quarantined:
+            _auto_audit.log_file_quarantined('', qp, job_id)
+        results.append({
+            'action_type': result.action_type, 'status': result.status,
+            'output': result.output, 'error': result.error,
+            'files_created': result.files_created,
+            'files_modified': result.files_modified,
+            'files_quarantined': result.files_quarantined,
+            'duration_ms': int((result.finished_at - result.started_at) * 1000),
+        })
+
+    # Consume plan after execution
+    _active_plans.pop(plan_id, None)
+    return jsonify({'job_id': job_id, 'results': results})
+
+
+@app.route('/api/atlantean/automation/jobs', methods=['GET'])
+@require_auth
+def automation_jobs():
+    if not _AUTOMATION_AVAILABLE:
+        return _auto_unavailable()
+    return jsonify({'events': _auto_audit.get_recent_events(50)})
+
+
+@app.route('/api/atlantean/automation/quarantine', methods=['GET'])
+@require_auth
+def automation_quarantine_list():
+    if not _AUTOMATION_AVAILABLE:
+        return _auto_unavailable()
+    return jsonify({'items': _auto_quarantine.list_quarantine()})
+
+
+@app.route('/api/atlantean/automation/quarantine/restore', methods=['POST'])
+@require_auth
+def automation_quarantine_restore():
+    if not _AUTOMATION_AVAILABLE:
+        return _auto_unavailable()
+    body = request.get_json(force=True, silent=True) or {}
+    qpath = str(body.get('quarantine_path', ''))
+    try:
+        original = _auto_quarantine.restore_quarantined(qpath)
+        _auto_audit.log_quarantine_restored(qpath, original)
+        return jsonify({'success': True, 'restored_to': original})
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@app.route('/api/atlantean/automation/quarantine/purge', methods=['POST'])
+@require_auth
+def automation_quarantine_purge():
+    if not _AUTOMATION_AVAILABLE:
+        return _auto_unavailable()
+    body = request.get_json(force=True, silent=True) or {}
+    qpath = str(body.get('quarantine_path', ''))
+    _auto_quarantine.purge_quarantined(qpath)
+    return jsonify({'success': True})
+
+
+# ========== Health Check ==========
 
 @app.route('/api/atlantean/operations/summary', methods=['GET'])
 @require_auth

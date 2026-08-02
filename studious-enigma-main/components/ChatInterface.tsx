@@ -15,6 +15,7 @@ import ProfileModal from './ProfileModal';
 import VoiceModeOverlay from './VoiceModeOverlay';
 import ToastCenter, { type ToastItem, type ToastKind } from './ToastCenter';
 import { useSpeechToText } from '../hooks/useSpeechToText';
+import SovereignWorkspace from './workspace/SovereignWorkspace';
 import { useTextToSpeech, wakeAudioContext, getAudioState } from '../hooks/useTextToSpeech';
 import { useLiveSession } from '../hooks/useLiveSession';
 import { USER_PROFILE_KEY } from '../constants';
@@ -59,7 +60,7 @@ const ChatInterface: React.FC = () => {
   const [isProfileModalOpen, setProfileModalOpen] = useState(false);
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>(ThinkingMode.STANDARD);
   const [audioState, setAudioState] = useState(getAudioState());
-  const [sidebarTab, setSidebarTab] = useState<'telemetry' | 'operations' | 'archives' | 'hardware'>('telemetry');
+  const [sidebarTab, setSidebarTab] = useState<'telemetry' | 'operations' | 'archives' | 'hardware' | 'workspace'>('telemetry');
   const [ttsVoice, setTtsVoiceState] = useState<TtsVoice>(getTtsVoice());
   const [convoId, setConvoId] = useState<string>(createAndSetStableSessionId());
   const [simulationWrites, setSimulationWrites] = useState(0);
@@ -93,7 +94,7 @@ const ChatInterface: React.FC = () => {
   
   const onInterimTranscript = useCallback((transcript: string) => setInterimInput(transcript), []);
   
-  const { isListening, startListening: baseStartListening, stopListening } = useSpeechToText(onFinalTranscript, onInterimTranscript);
+  const { isListening, startListening: baseStartListening, stopListening, sovereignModeBlocked } = useSpeechToText(onFinalTranscript, onInterimTranscript);
   const {
     start: baseStartLive,
     stop: stopLive,
@@ -930,6 +931,12 @@ const ChatInterface: React.FC = () => {
           >
             Hardware
           </button>
+          <button 
+            onClick={() => setSidebarTab('workspace')}
+            className={`flex-1 py-3 text-[9px] font-bold uppercase tracking-[0.2em] rounded-lg transition-all ${sidebarTab === 'workspace' ? 'bg-white/10 text-[var(--color-primary)]' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            Workspace
+          </button>
         </div>
         
         {sidebarTab === 'telemetry' ? (
@@ -958,6 +965,14 @@ const ChatInterface: React.FC = () => {
         ) : sidebarTab === 'hardware' ? (
           <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
             <HardwarePanel />
+          </div>
+        ) : sidebarTab === 'workspace' ? (
+          <div className="flex-1 overflow-hidden">
+            <SovereignWorkspace
+              currentSessionId={convoId}
+              onInsertToChatContext={text => setInput(prev => prev ? prev + '\n\n' + text : text)}
+              onToast={msg => notify('info', msg, 3500)}
+            />
           </div>
         ) : (
           <NeuralArchives
