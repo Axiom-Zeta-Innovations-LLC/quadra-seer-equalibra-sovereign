@@ -1188,8 +1188,14 @@ const ChatInterface: React.FC = () => {
                     />
                     <div className="absolute right-2 bottom-2 flex items-center gap-1.5 p-1">
                         <button 
-                            onClick={isListening ? stopListening : startListening} 
-                            className={`p-2 rounded-xl transition-all ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                            onClick={isListening ? stopListening : startListening}
+                            disabled={sovereignModeBlocked && !isListening}
+                            title={sovereignModeBlocked ? 'Local STT unavailable — browser speech disabled in sovereign mode' : isListening ? 'Stop recording' : 'Start voice input'}
+                            className={`p-2 rounded-xl transition-all ${
+                              isListening ? 'bg-red-500 text-white animate-pulse'
+                              : sovereignModeBlocked ? 'text-amber-600 opacity-50 cursor-not-allowed'
+                              : 'text-gray-500 hover:text-white hover:bg-white/5'
+                            }`}
                         >
                             <Icon name="microphone" className="w-5 h-5" />
                         </button>
@@ -1202,6 +1208,11 @@ const ChatInterface: React.FC = () => {
                         </button>
                     </div>
                 </div>
+                {sovereignModeBlocked && (
+                  <p className="mt-1 px-2 text-[8px] text-amber-500 font-mono">
+                    ⚠ Sovereign mode: local STT unavailable. Browser speech is disabled. Use the Workspace → Voice tab or install Whisper.
+                  </p>
+                )}
                 </div>
             </div>
         </footer>
