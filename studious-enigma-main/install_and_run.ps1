@@ -1,0 +1,256 @@
+# ============================================================
+#  One-Click Installer & Launcher — Windows (PowerShell 5+)
+#
+#  Usage (right-click → "Run with PowerShell", or in terminal):
+#    powershell -ExecutionPolicy Bypass -File install_and_run.ps1
+#
+#  Options:
+#    -Model <tag>    Ollama model (default: llama3.2:3b-instruct-q4_K_M)
+#    -Reinstall      Force reinstall of Python/npm deps
+# ============================================================
+
+param(
+    [string]$Model = "llama3.2:3b-instruct-q4_K_M",
+    [switch]$Reinstall
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location $ScriptDir
+
+function Log   { Write-Host "`n▶  $args" -ForegroundColor Cyan }
+function Ok    { Write-Host "✅ $args" -ForegroundColor Green }
+function Warn  { Write-Host "⚠️  $args" -ForegroundColor Yellow }
+function Fail  { Write-Host "`n❌ $args" -ForegroundColor Red; exit 1 }
+
+Write-Host ""
+Write-Host "╔══════════════════════════════════════════════════════╗" -ForegroundColor Magenta
+Write-Host "║       Atlantean — Local Ollama Installer             ║" -ForegroundColor Magenta
+Write-Host "╚══════════════════════════════════════════════════════╝" -ForegroundColor Magenta
+Write-Host "  Model : $Model"
+Write-Host "  Dir   : $ScriptDir"
+Write-Host ""
+
+# ── 1. Check Python ──────────────────────────────────────────────────────────
+Log "Checking Python..."
+$PythonBin = $null
+foreach ($candidate in @("python", "python3", "py")) {
+    try {
+        $ver = & $candidate --version 2>&1
+        if ($ver -match "Python 3\.(\d+)") {
+            $minor = [int]$Matches[1]
+            if ($minor -ge 10) {
+                $PythonBin = $candidate
+                Ok "Found: $ver"
+                break
+            }
+        }
+    } catch { }
+}
+if (-not $PythonBin) {
+    Fail "Python 3.10 or newer is required.`nDownload from: https://www.python.org/downloads/"
+}
+
+# ── 2. Check Node.js ─────────────────────────────────────────────────────────
+Log "Checking Node.js..."
+try {
+    $nodeVer = node --version 2>&1
+    if ($nodeVer -match "v(\d+)") {
+        if ([int]$Matches[1] -lt 18) {
+            Fail "Node.js 18+ required (found $nodeVer).`nDownload from: https://nodejs.org"
+        }
+    }
+    Ok "Found Node.js $nodeVer"
+} catch {
+    Fail "Node.js 18+ is required.`nDownload from: https://nodejs.org"
+}
+
+# ── 3. Install / verify Ollama ───────────────────────────────────────────────
+Log "Checking Ollama..."
+$OllamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
+if (-not $OllamaCmd) {
+    Warn "Ollama not found. Downloading installer..."
+    $installer = "$env:TEMP\OllamaSetup.exe"
+    Invoke-WebRequest -Uri "https://ollama.com/download/OllamaSetup.exe" `
+        -OutFile $installer -UseBasicParsing
+    Write-Host "  Running Ollama installer (follow the GUI prompts)..."
+    Start-Process -FilePath $installer -Wait
+    # Refresh PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
+                [System.Environment]::GetEnvironmentVariable("Path","User")
+    if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+        Fail "Ollama installation failed or not on PATH.`nInstall manually from https://ollama.com/download then re-run this script."
+    }
+    Ok "Ollama installed"
+} else {
+    Ok "Ollama present: $(ollama --version 2>&1)"
+}
+
+# ── 4. Start Ollama service ───────────────────────────────────────────────────
+Log "Starting Ollama service..."
+$ollamaRunning = $false
+try {
+    $resp = Invoke-WebRequest -Uri "http://127.0.0.1:11434/" -UseBasicParsing -TimeoutSec 2
+    $ollamaRunning = $true
+} catch { }
+
+if (-not $ollamaRunning) {
+    Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden
+    Write-Host "  Waiting for Ollama to start..."
+    for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Seconds 1
+        try {
+            Invoke-WebRequest -Uri "http://127.0.0.1:11434/" -UseBasicParsing -TimeoutSec 2 | Out-Null
+            $ollamaRunning = $true; break
+        } catch { }
+    }
+    if (-not $ollamaRunning) { Fail "Ollama service did not start. Try running 'ollama serve' manually." }
+    Ok "Ollama service running"
+} else {
+    Ok "Ollama service already running"
+}
+
+# ── 5. Pull model ────────────────────────────────────────────────────────────
+Log "Checking model: $Model ..."
+$modelList = ollama list 2>&1
+if ($modelList -match [regex]::Escape($Model)) {
+    Ok "Model already downloaded: $Model"
+} else {
+    Write-Host "  Pulling $Model (may take several minutes on first run)..."
+    ollama pull $Model
+    Ok "Model ready: $Model"
+}
+
+# ── 6. Python virtual environment ────────────────────────────────────────────
+Log "Setting up Python environment..."
+$VenvDir = Join-Path $ScriptDir ".venv"
+
+if ($Reinstall -and (Test-Path $VenvDir)) {
+    Remove-Item -Recurse -Force $VenvDir
+    Warn "Removed existing venv for reinstall"
+}
+
+if (-not (Test-Path $VenvDir)) {
+    & $PythonBin -m venv $VenvDir
+    Ok "Created virtual environment"
+}
+
+$Py  = Join-Path $VenvDir "Scripts\python.exe"
+$Pip = Join-Path $VenvDir "Scripts\pip.exe"
+$InstalledFlag = Join-Path $VenvDir ".installed"
+
+if ($Reinstall -or -not (Test-Path $InstalledFlag)) {
+    Log "Installing Python dependencies (torch CPU — ~800 MB, please wait)..."
+    & $Pip install --quiet --upgrade pip
+
+    # Build requirements without torch / voice deps
+    $reqs = Get-Content "$ScriptDir\requirements.txt" | 
+        Where-Object { $_ -notmatch "^torch==" -and $_ -notmatch "^faster-whisper" -and $_ -notmatch "^piper-tts" }
+    $tmpReqs = "$env:TEMP\atlantean_reqs.txt"
+    $reqs | Set-Content $tmpReqs
+
+    & $Pip install --quiet -r $tmpReqs
+
+    # CPU-only torch
+    & $Pip install --quiet --index-url https://download.pytorch.org/whl/cpu "torch==2.2.0"
+
+    New-Item -Path $InstalledFlag -ItemType File -Force | Out-Null
+    Ok "Python dependencies installed"
+} else {
+    Ok "Python dependencies already installed (use -Reinstall to refresh)"
+}
+
+# ── 7. Node.js dependencies ──────────────────────────────────────────────────
+Log "Installing Node.js dependencies..."
+if ($Reinstall -or -not (Test-Path "$ScriptDir\node_modules")) {
+    npm install --silent
+    Ok "Node.js dependencies installed"
+} else {
+    Ok "Node.js dependencies already installed"
+}
+
+# ── 8. Write .env.local ──────────────────────────────────────────────────────
+Log "Configuring environment..."
+$EnvFile = Join-Path $ScriptDir ".env.local"
+if (-not (Test-Path $EnvFile)) {
+    $secret = & $Py -c "import secrets; print(secrets.token_hex(24))"
+    @"
+# Auto-generated by install_and_run.ps1 — edit as needed
+
+# Local Ollama inference (no cloud, no API key needed)
+ATLANTEAN_LLM_PROVIDER=local
+LOCAL_LLM_BACKEND=ollama
+LOCAL_LLM_URL=http://127.0.0.1:11434/api/generate
+LOCAL_LLM_MODEL=$Model
+
+# Session security
+ATLANTEAN_SESSION_SECRET=$secret
+
+# Disable cloud escalation (fully local)
+ALLOW_CLOUD_ESCALATION=0
+ALLOW_OUTBOUND_NETWORK=0
+
+# Hardware tier (options: small_quantized, medium, multi_agent)
+ATLANTEAN_HARDWARE_TIER=medium
+
+# Port
+PY_BACKEND_PORT=5001
+"@ | Set-Content $EnvFile -Encoding UTF8
+    Ok ".env.local created"
+} else {
+    # Update model in existing .env.local
+    (Get-Content $EnvFile) -replace "^LOCAL_LLM_MODEL=.*", "LOCAL_LLM_MODEL=$Model" |
+        Set-Content $EnvFile -Encoding UTF8
+    Ok ".env.local already exists"
+}
+
+# ── 9. Start backend ─────────────────────────────────────────────────────────
+Log "Starting Atlantean backend..."
+$BackendPort = 5001
+$BackendProc = Start-Process -FilePath $Py `
+    -ArgumentList "$ScriptDir\atlantean_backend.py" `
+    -WorkingDirectory $ScriptDir `
+    -PassThru -WindowStyle Normal
+
+Write-Host "  Waiting for backend to be healthy..."
+$healthy = $false
+for ($i = 0; $i -lt 60; $i++) {
+    Start-Sleep -Seconds 1
+    try {
+        Invoke-WebRequest -Uri "http://127.0.0.1:$BackendPort/health" `
+            -UseBasicParsing -TimeoutSec 2 | Out-Null
+        $healthy = $true; break
+    } catch { }
+    if ($BackendProc.HasExited) {
+        Fail "Backend exited before becoming healthy. Check the Python console window for errors."
+    }
+}
+if (-not $healthy) { Fail "Backend health-check timed out." }
+Ok "Backend healthy (PID: $($BackendProc.Id))"
+
+# ── 10. Open browser and launch Vite ─────────────────────────────────────────
+Write-Host ""
+Write-Host "╔══════════════════════════════════════════════════════╗" -ForegroundColor Green
+Write-Host "║                    READY                            ║" -ForegroundColor Green
+Write-Host "╠══════════════════════════════════════════════════════╣" -ForegroundColor Green
+Write-Host "║  Backend  →  http://127.0.0.1:$BackendPort             ║" -ForegroundColor Green
+Write-Host "║  Frontend →  http://127.0.0.1:3000  (opening now)   ║" -ForegroundColor Green
+Write-Host "║                                                      ║" -ForegroundColor Green
+Write-Host "║  Model    →  $Model" -ForegroundColor Green
+Write-Host "║  Close this window to stop                          ║" -ForegroundColor Green
+Write-Host "╚══════════════════════════════════════════════════════╝" -ForegroundColor Green
+Write-Host ""
+
+Start-Process -FilePath "powershell" -ArgumentList `
+    "-Command", "Start-Sleep 5; Start-Process 'http://127.0.0.1:3000'" `
+    -WindowStyle Hidden
+
+# Run Vite in foreground
+npm run dev
+
+# Cleanup on exit
+if (-not $BackendProc.HasExited) {
+    $BackendProc.Kill()
+    Write-Host "Backend stopped."
+}
