@@ -417,14 +417,6 @@ def _local_llm_stream(prompt: str, **kwargs):
         yield text
 
 
-
-    return evaluate_cloud_escalation(
-        allow_cloud_escalation=ALLOW_CLOUD_ESCALATION,
-        require_cloud_escalation_consent=REQUIRE_CLOUD_ESCALATION_CONSENT,
-        explicit_consent=explicit_consent,
-    )
-
-
 def _enforce_ledger_gate_or_raise(
     session_id: str,
     bridge: 'AtlanteanQuadraBridge',
@@ -2173,7 +2165,7 @@ def get_hardware_scaling_matrix():
 @app.route('/api/atlantean/chat/history', methods=['GET'])
 def get_chat_history():
     """Get recent persisted chat turns for a session."""
-    session_id = _resolve_session_id()
+    session_id = _resolve_session_id(request.args.get('session_id'))
     limit = int(request.args.get('limit', 80))
     b = get_bridge_for_session(session_id)
     messages = b.list_chat_history(session_id=session_id, limit=limit)

@@ -340,61 +340,50 @@ class AtlanteanQuadraBridge:
         memories: List[Dict[str, Any]] = []
 
         try:
-            redis_conn = self.cold_memory.redis
-            item_keys = redis_conn.keys('item:*')
-            for key in item_keys:
-                raw = redis_conn.get(key)
-                if not raw:
+            for item in self.cold_memory.items.values():
+                meta = item.metadata
+                if meta.get('tombstone'):
                     continue
+                item_type = meta.get('type')
+                if item_type not in ('chat_turn', 'simulation'):
+                    continue
+                if item_type == 'simulation' and not include_simulations:
+                    continue
+
+                text = str(item.content)
+                lowered = text.lower()
+                overlap = sum(1 for t in query_terms if t in lowered) if query_terms else 0
+
+                # Score by lexical overlap, metadata relevance, and session continuity.
+                retrieval_weight = float(meta.get('retrieval_weight', meta.get('relevance', 0.2)))
+                learning_weight = float(meta.get('learning_weight', meta.get('relevance', 0.2)))
+                score = retrieval_weight + float(overlap) * 0.2
+                role = str(meta.get('role', '')).lower()
+                if role == 'user':
+                    score += 0.25
+                elif role == 'assistant':
+                    score -= 0.05
+                if session_id and meta.get('session_id') == session_id:
+                    score += 0.25
+
+                ts_raw = meta.get('timestamp', '')
                 try:
-                    item_dict = json.loads(raw)
-                    meta = item_dict.get('metadata', {})
-                    if meta.get('tombstone'):
-                        continue
-                    item_type = meta.get('type')
-                    if item_type not in ('chat_turn', 'simulation'):
-                        continue
-                    if item_type == 'simulation' and not include_simulations:
-                        continue
-
-                    text = str(item_dict.get('content', ''))
-                    lowered = text.lower()
-                    overlap = 0
-                    if query_terms:
-                        overlap = sum(1 for t in query_terms if t in lowered)
-
-                    # Score by lexical overlap, metadata relevance, and session continuity.
-                    retrieval_weight = float(meta.get('retrieval_weight', meta.get('relevance', 0.2)))
-                    learning_weight = float(meta.get('learning_weight', meta.get('relevance', 0.2)))
-                    score = retrieval_weight + float(overlap) * 0.2
-                    role = str(meta.get('role', '')).lower()
-                    if role == 'user':
-                        score += 0.25
-                    elif role == 'assistant':
-                        score -= 0.05
-                    if session_id and meta.get('session_id') == session_id:
-                        score += 0.25
-
-                    ts_raw = meta.get('timestamp', '')
-                    try:
-                        ts_ms = int(datetime.fromisoformat(ts_raw).timestamp() * 1000)
-                    except Exception:
-                        ts_ms = int(datetime.now().timestamp() * 1000)
-
-                    memories.append({
-                        'type': item_type,
-                        'role': role,
-                        'score': score,
-                        'timestamp': ts_ms,
-                        'session_id': meta.get('session_id'),
-                        'domain': meta.get('domain', 'chat'),
-                        'relevance': float(meta.get('relevance', 0.0)),
-                        'retrieval_weight': retrieval_weight,
-                        'learning_weight': learning_weight,
-                        'content_raw': text,
-                    })
+                    ts_ms = int(datetime.fromisoformat(ts_raw).timestamp() * 1000)
                 except Exception:
-                    continue
+                    ts_ms = int(datetime.now().timestamp() * 1000)
+
+                memories.append({
+                    'type': item_type,
+                    'role': role,
+                    'score': score,
+                    'timestamp': ts_ms,
+                    'session_id': meta.get('session_id'),
+                    'domain': meta.get('domain', 'chat'),
+                    'relevance': float(meta.get('relevance', 0.0)),
+                    'retrieval_weight': retrieval_weight,
+                    'learning_weight': learning_weight,
+                    'content_raw': text,
+                })
         except Exception as e:
             print(f'Failed to recall chat memory: {e}')
             return []
@@ -445,53 +434,42 @@ class AtlanteanQuadraBridge:
         history: List[Dict[str, Any]] = []
 
         try:
-            redis_conn = self.cold_memory.redis
-            item_keys = redis_conn.keys('item:*')
-            for key in item_keys:
-                raw = redis_conn.get(key)
-                if not raw:
+            for item in self.cold_memory.items.values():
+                meta = item.metadata
+                if meta.get('tombstone'):
                     continue
+                if meta.get('type') != 'chat_turn':
+                    continue
+                if session_id and meta.get('session_id') != session_id:
+                    continue
+
+                content_raw = str(item.content).strip()
+                if not content_raw:
+                    continue
+
+                role = str(meta.get('role', 'assistant')).lower()
+                if role not in ('user', 'assistant'):
+                    role = 'assistant'
 
                 try:
-                    item_dict = json.loads(raw)
-                    meta = item_dict.get('metadata', {})
-                    if meta.get('tombstone'):
-                        continue
-                    if meta.get('type') != 'chat_turn':
-                        continue
-                    if session_id and meta.get('session_id') != session_id:
-                        continue
-
-                    content_raw = str(item_dict.get('content', '')).strip()
-                    if not content_raw:
-                        continue
-
-                    role = str(meta.get('role', 'assistant')).lower()
-                    if role not in ('user', 'assistant'):
-                        role = 'assistant'
-
-                    try:
-                        payload = json.loads(content_raw)
-                        text = str(payload.get('content', '')).strip() or content_raw
-                    except Exception:
-                        text = content_raw
-
-                    ts_raw = meta.get('timestamp', '')
-                    try:
-                        ts_ms = int(datetime.fromisoformat(ts_raw).timestamp() * 1000)
-                    except Exception:
-                        ts_ms = int(datetime.now().timestamp() * 1000)
-
-                    key_text = key.decode('utf-8') if isinstance(key, bytes) else str(key)
-                    history.append({
-                        'id': key_text,
-                        'role': role,
-                        'content': text,
-                        'timestamp': ts_ms,
-                        'session_id': meta.get('session_id', 'default'),
-                    })
+                    payload = json.loads(content_raw)
+                    text = str(payload.get('content', '')).strip() or content_raw
                 except Exception:
-                    continue
+                    text = content_raw
+
+                ts_raw = meta.get('timestamp', '')
+                try:
+                    ts_ms = int(datetime.fromisoformat(ts_raw).timestamp() * 1000)
+                except Exception:
+                    ts_ms = int(datetime.now().timestamp() * 1000)
+
+                history.append({
+                    'id': item.id,
+                    'role': role,
+                    'content': text,
+                    'timestamp': ts_ms,
+                    'session_id': meta.get('session_id', 'default'),
+                })
         except Exception as e:
             print(f'Failed to list chat history: {e}')
             return []

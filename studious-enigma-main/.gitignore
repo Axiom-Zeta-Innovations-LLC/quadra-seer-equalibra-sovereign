@@ -17,6 +17,7 @@ __pycache__/
 **/__pycache__/
 *.py[cod]
 flask_session/
+.venv/
 
 # Runtime state artifacts
 *.bin
