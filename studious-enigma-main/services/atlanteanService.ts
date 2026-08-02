@@ -92,6 +92,39 @@ function getAtlanteanApiBase(): string {
 function getAtlanteanHealthUrl(): string {
   return resolveAtlanteanHealthUrlOrThrow();
 }
+
+// ── Ollama connection helpers ─────────────────────────────────────────────────
+
+export async function fetchOllamaAddress(): Promise<string> {
+  try {
+    const base = resolveAtlanteanApiBaseOrThrow();
+    const res = await fetch(`${base}/config/ollama`, { headers: getAtlanteanAuthHeaders() });
+    if (!res.ok) return '';
+    const data = await res.json();
+    return (data.ollama_address as string) || '';
+  } catch {
+    return '';
+  }
+}
+
+export async function applyOllamaAddress(host: string): Promise<{ success: boolean; message: string; reachable: boolean }> {
+  const base = resolveAtlanteanApiBaseOrThrow();
+  const res = await fetch(`${base}/config/ollama`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAtlanteanAuthHeaders() },
+    body: JSON.stringify({ ollama_address: host }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    return { success: false, message: data.error || 'Failed to update Ollama address.', reachable: false };
+  }
+  return {
+    success: Boolean(data.success),
+    message: data.message || 'Ollama address updated.',
+    reachable: Boolean(data.reachable),
+  };
+}
+// ─────────────────────────────────────────────────────────────────────────────
 const ATLANTEAN_SESSION_STORAGE_KEY = 'atlantean.session_id';
 
 function generateSessionId(): string {

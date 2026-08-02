@@ -15,6 +15,7 @@ export interface AppSettings {
   ttsVoice: TtsVoice;
   cloudEscalationConsent: boolean;
   routingControls: RoutingControls;
+  ollamaHost: string;
 }
 
 const SETTINGS_STORAGE_KEY = 'qmai.settings';
@@ -28,6 +29,7 @@ const defaultSettings: AppSettings = {
     modelTierPreference: 'auto',
     localBackendHint: 'auto',
   },
+  ollamaHost: '',
 };
 
 export function getSettings(): AppSettings {
@@ -54,6 +56,7 @@ export function getSettings(): AppSettings {
           ? (parsed.routingControls as any).localBackendHint
           : 'auto') as LocalBackendHint,
       },
+      ollamaHost: typeof parsed.ollamaHost === 'string' ? parsed.ollamaHost : '',
     };
   } catch {
     return { ...defaultSettings };
@@ -139,4 +142,13 @@ export function setRoutingControls(controls: Partial<RoutingControls>): void {
     ...settings,
     routingControls: { ...settings.routingControls, ...controls },
   });
+}
+
+export function getOllamaHost(): string {
+  return getSettings().ollamaHost || '';
+}
+
+export function setOllamaHost(host: string): void {
+  const settings = getSettings();
+  saveSettings({ ...settings, ollamaHost: host.trim() });
 }

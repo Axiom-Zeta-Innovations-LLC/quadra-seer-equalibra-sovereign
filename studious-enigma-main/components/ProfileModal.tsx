@@ -10,14 +10,16 @@ import {
   ModelTierPreference,
   getCloudEscalationConsent,
   getLlmProvider,
+  getOllamaHost,
   getProviderApiKey,
   getRoutingControls,
   setCloudEscalationConsent,
   setLlmProvider,
+  setOllamaHost,
   setProviderApiKey,
   setRoutingControls,
 } from '../services/settingsService';
-import { resolveAtlanteanApiBaseOrThrow } from '../services/atlanteanService';
+import { applyOllamaAddress, resolveAtlanteanApiBaseOrThrow } from '../services/atlanteanService';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -62,6 +64,8 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
   const [localBackendHint, setLocalBackendHint] = useState<LocalBackendHint>(getRoutingControls().localBackendHint);
   const [geminiApiKey, setGeminiApiKey] = useState<string>(getProviderApiKey('gemini') || '');
   const [voiceCaps, setVoiceCaps] = useState<{ stt: boolean; tts: boolean } | null>(null);
+  const [ollamaHost, setOllamaHostState] = useState<string>(getOllamaHost());
+  const [ollamaStatus, setOllamaStatus] = useState<{ message: string; ok: boolean } | null>(null);
 
   useEffect(() => {
     setProfile(currentProfile);
@@ -70,6 +74,8 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
     setModelTierPreference(getRoutingControls().modelTierPreference);
     setLocalBackendHint(getRoutingControls().localBackendHint);
     setGeminiApiKey(getProviderApiKey('gemini') || '');
+    setOllamaHostState(getOllamaHost());
+    setOllamaStatus(null);
     // When the modal is opened, sync the color pickers with the current theme's colors
     if (isOpen) {
         const customThemeColors = JSON.parse(localStorage.getItem('qmai-custom-theme-colors') || '{}');
@@ -89,13 +95,26 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     onSave(profile);
     setLlmProvider(llmProvider);
     setCloudEscalationConsent(cloudEscalationConsent);
     setRoutingControls({ modelTierPreference, localBackendHint });
     if (geminiApiKey.trim()) {
       setProviderApiKey('gemini', geminiApiKey.trim());
+    }
+    // Apply Ollama address if it changed.
+    const savedHost = getOllamaHost();
+    if (ollamaHost.trim() !== savedHost) {
+      setOllamaHost(ollamaHost.trim());
+      if (ollamaHost.trim()) {
+        try {
+          const result = await applyOllamaAddress(ollamaHost.trim());
+          setOllamaStatus({ message: result.message, ok: result.reachable });
+        } catch {
+          setOllamaStatus({ message: 'Could not reach the backend to apply the address.', ok: false });
+        }
+      }
     }
     // Check if the colors have been changed from the currently active theme's colors
     const originalPrimary = theme.colors['--color-primary'];
@@ -301,6 +320,30 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                   <option value="llama.cpp">llama.cpp</option>
                   <option value="vllm">vLLM</option>
                 </select>
+              </div>
+              <div>
+                <label htmlFor="ollama-host" className="block text-sm font-medium mb-1" style={{ color: 'var(--color-primary)' }}>
+                  Ollama Address
+                </label>
+                <input
+                  id="ollama-host"
+                  type="text"
+                  value={ollamaHost}
+                  onChange={e => { setOllamaHostState(e.target.value); setOllamaStatus(null); }}
+                  placeholder="localhost:11434"
+                  className="w-full p-2 bg-gray-800/50 border rounded-md focus:outline-none focus:ring-2 font-mono text-xs"
+                  style={{ borderColor: 'var(--color-border)', '--tw-ring-color': 'var(--color-accent)' } as any}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <p className="text-[10px] text-gray-500 mt-1">
+                  Where Ollama is running — just the address, e.g. <span className="font-mono">localhost:11434</span> or <span className="font-mono">192.168.1.5:11434</span>. Leave blank to use the server default.
+                </p>
+                {ollamaStatus && (
+                  <p className={`text-[10px] mt-1 font-semibold ${ollamaStatus.ok ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {ollamaStatus.ok ? '✓' : '!'} {ollamaStatus.message}
+                  </p>
+                )}
               </div>
               <p className="text-[10px] text-gray-400">
                 These preferences are sent with each query. The server enforces sovereignty policy regardless of client selection.

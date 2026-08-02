@@ -166,6 +166,37 @@ ATLANTEAN_LLM_PROVIDER = (os.getenv('ATLANTEAN_LLM_PROVIDER') or 'local').strip(
 LOCAL_LLM_URL = os.getenv('LOCAL_LLM_URL', 'http://127.0.0.1:11434/api/generate').strip()
 LOCAL_LLM_MODEL = os.getenv('LOCAL_LLM_MODEL', 'llama3.1:8b-instruct-q4_K_M').strip()
 LOCAL_LLM_BACKEND = (os.getenv('LOCAL_LLM_BACKEND') or 'ollama').strip().lower()
+
+# Runtime-overridable config (set via /api/atlantean/config/ollama without restart).
+_runtime_ollama_url: str = ''
+
+
+def _backend_path_for(backend: str) -> str:
+    """Return the API path suffix for a given backend type."""
+    if backend in {'llama.cpp', 'llamacpp', 'llama_cpp'}:
+        return '/completion'
+    if backend == 'vllm':
+        return '/v1/completions'
+    return '/api/generate'
+
+
+def _host_to_url(host: str, backend: str = 'ollama') -> str:
+    """Convert a bare host[:port] string to a full LLM API URL."""
+    host = host.strip().rstrip('/')
+    if host.startswith(('http://', 'https://')):
+        # Already a full URL — append path only if missing.
+        path = _backend_path_for(backend)
+        return host if host.endswith(path) else f'{host}{path}'
+    # Bare host — assume http.
+    path = _backend_path_for(backend)
+    return f'http://{host}{path}'
+
+
+def _get_local_llm_url(backend: str | None = None) -> str:
+    """Return the effective Ollama URL, preferring runtime overrides."""
+    if _runtime_ollama_url:
+        return _host_to_url(_runtime_ollama_url, backend or LOCAL_LLM_BACKEND)
+    return LOCAL_LLM_URL
 LOCAL_LLM_TIMEOUT_SECONDS = float(os.getenv('LOCAL_LLM_TIMEOUT_SECONDS', '90'))
 LOCAL_CONTEXT_WINDOW = int(os.getenv('ATLANTEAN_LOCAL_CONTEXT_WINDOW', '8192'))
 ALLOW_OUTBOUND_NETWORK = os.getenv('ALLOW_OUTBOUND_NETWORK', '0') == '1'
@@ -317,14 +348,15 @@ def _local_llm_api_call(prompt: str, **kwargs) -> str:
     model = str(kwargs.get('model') or LOCAL_LLM_MODEL)
     temperature = float(kwargs.get('temperature', 0.6))
     max_tokens = int(kwargs.get('max_tokens', 1024))
+    active_url = _get_local_llm_url(backend)
 
     outbound_policy = evaluate_local_url_policy(
-        url=LOCAL_LLM_URL,
+        url=active_url,
         allow_outbound_network=ALLOW_OUTBOUND_NETWORK,
     )
     if not bool(outbound_policy.get('allowed', False)):
         raise RuntimeError(
-            "Outbound network policy blocked LOCAL_LLM_URL. "
+            "Outbound network policy blocked the Ollama URL. "
             f"reason={outbound_policy.get('reason_code')}"
         )
 
@@ -339,7 +371,7 @@ def _local_llm_api_call(prompt: str, **kwargs) -> str:
             },
         }
         response = requests.post(
-            LOCAL_LLM_URL,
+            active_url,
             json=payload,
             timeout=LOCAL_LLM_TIMEOUT_SECONDS,
         )
@@ -354,7 +386,7 @@ def _local_llm_api_call(prompt: str, **kwargs) -> str:
             'stream': False,
         }
         response = requests.post(
-            LOCAL_LLM_URL,
+            active_url,
             json=payload,
             timeout=LOCAL_LLM_TIMEOUT_SECONDS,
         )
@@ -369,7 +401,7 @@ def _local_llm_api_call(prompt: str, **kwargs) -> str:
             'temperature': temperature,
         }
         response = requests.post(
-            LOCAL_LLM_URL,
+            active_url,
             json=payload,
             timeout=LOCAL_LLM_TIMEOUT_SECONDS,
         )
@@ -397,19 +429,20 @@ def _local_llm_stream(prompt: str, **kwargs):
     model   = str(kwargs.get('model')   or LOCAL_LLM_MODEL)
     temperature = float(kwargs.get('temperature', 0.6))
     max_tokens  = int(kwargs.get('max_tokens', 1200))
+    active_url = _get_local_llm_url(backend)
 
     outbound_policy = evaluate_local_url_policy(
-        url=LOCAL_LLM_URL, allow_outbound_network=ALLOW_OUTBOUND_NETWORK,
+        url=active_url, allow_outbound_network=ALLOW_OUTBOUND_NETWORK,
     )
     if not bool(outbound_policy.get('allowed', False)):
-        raise RuntimeError(f"Outbound policy blocked LOCAL_LLM_URL: {outbound_policy.get('reason_code')}")
+        raise RuntimeError(f"Outbound policy blocked Ollama URL: {outbound_policy.get('reason_code')}")
 
     if backend == 'ollama':
         payload = {
             'model': model, 'prompt': prompt, 'stream': True,
             'options': {'temperature': temperature, 'num_predict': max_tokens},
         }
-        with requests.post(LOCAL_LLM_URL, json=payload,
+        with requests.post(active_url, json=payload,
                            timeout=LOCAL_LLM_TIMEOUT_SECONDS, stream=True) as resp:
             resp.raise_for_status()
             for raw_line in resp.iter_lines():
@@ -426,7 +459,7 @@ def _local_llm_stream(prompt: str, **kwargs):
                     break
     elif backend in {'llama.cpp', 'llamacpp', 'llama_cpp'}:
         # llama.cpp server supports streaming via chunked JSON
-        import_url = LOCAL_LLM_URL.replace('/completion', '/completions') if 'completion' in LOCAL_LLM_URL else LOCAL_LLM_URL
+        import_url = active_url.replace('/completion', '/completions') if 'completion' in active_url else active_url
         payload = {'prompt': prompt, 'temperature': temperature,
                    'n_predict': max_tokens, 'stream': True}
         with requests.post(import_url, json=payload,
@@ -3863,6 +3896,69 @@ def automation_quarantine_purge():
     return jsonify({'success': True})
 
 
+# ========== Ollama Config (runtime) ==========
+
+@app.route('/api/atlantean/config/ollama', methods=['GET'])
+def ollama_config_get():
+    """Return the current effective Ollama address (host:port only, user-friendly)."""
+    global _runtime_ollama_url
+    effective_url = _get_local_llm_url()
+    # Derive a friendly host:port from the full URL for display.
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(effective_url)
+        host_display = parsed.hostname or 'localhost'
+        port_display = parsed.port or 11434
+        friendly = f'{host_display}:{port_display}'
+    except Exception:
+        friendly = 'localhost:11434'
+    return jsonify({
+        'ollama_address': friendly,
+        'full_url': effective_url,
+        'runtime_override_active': bool(_runtime_ollama_url),
+    })
+
+
+@app.route('/api/atlantean/config/ollama', methods=['POST'])
+def ollama_config_set():
+    """Update the Ollama address at runtime without restarting the server.
+
+    Accepts ``{"ollama_address": "localhost:11434"}`` — just a host and port,
+    no path or protocol required.  The backend constructs the full API URL.
+    """
+    global _runtime_ollama_url
+    body = request.get_json(force=True, silent=True) or {}
+    raw = str(body.get('ollama_address') or '').strip()
+    if not raw:
+        return jsonify({'error': 'ollama_address is required (e.g. "localhost:11434")'}), 400
+
+    # Validate the address doesn't contain anything unexpected.
+    import re as _re
+    if not _re.match(r'^(https?://)?[\w.\-]+(:\d+)?(/.*)?$', raw):
+        return jsonify({'error': 'Invalid address format. Use host:port, e.g. "localhost:11434".'}), 400
+
+    _runtime_ollama_url = raw
+    effective_url = _get_local_llm_url()
+
+    # Quick reachability probe.
+    reachable = False
+    try:
+        probe = effective_url.rsplit('/api/', 1)[0] + '/'
+        r = requests.get(probe, timeout=3)
+        reachable = r.status_code < 500
+    except Exception:
+        pass
+
+    return jsonify({
+        'success': True,
+        'ollama_address': raw,
+        'full_url': effective_url,
+        'reachable': reachable,
+        'message': 'Ollama address updated.' if reachable else
+                   'Address saved, but Ollama did not respond — make sure it is running.',
+    })
+
+
 # ========== Health Check ==========
 
 @app.route('/api/atlantean/operations/summary', methods=['GET'])
@@ -3878,7 +3974,8 @@ def operations_summary():
     redis_ok = REDIS_AVAILABLE
     ollama_ok = False
     try:
-        r = requests.get(LOCAL_LLM_URL.replace('/api/generate', '/'), timeout=2)
+        _probe_url = _get_local_llm_url().rsplit('/api/', 1)[0] + '/'
+        r = requests.get(_probe_url, timeout=2)
         ollama_ok = r.status_code < 500
     except Exception:
         pass
@@ -4014,7 +4111,8 @@ def health_deep():
     redis_ok = REDIS_AVAILABLE
     ollama_ok = False
     try:
-        r = requests.get(LOCAL_LLM_URL.replace('/api/generate', '/'), timeout=2)
+        _probe_url = _get_local_llm_url().rsplit('/api/', 1)[0] + '/'
+        r = requests.get(_probe_url, timeout=2)
         ollama_ok = r.status_code < 500
     except Exception:
         pass
