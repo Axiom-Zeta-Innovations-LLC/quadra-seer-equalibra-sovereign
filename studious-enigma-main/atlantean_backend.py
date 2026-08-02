@@ -529,7 +529,7 @@ if SESSION_SECRET == 'dev-only-change-me':
 # Restrict CORS to specific origins (development and production)
 allowed_origins = os.getenv(
     'ALLOWED_ORIGINS',
-    'http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173'
+    'http://localhost:5000,http://127.0.0.1:5000,http://localhost:5173,http://127.0.0.1:5173'
 ).split(',')
 allowed_origins = [o.strip() for o in allowed_origins]
 

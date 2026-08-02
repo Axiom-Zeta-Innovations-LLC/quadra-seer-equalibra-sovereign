@@ -280,7 +280,7 @@ echo "╔═══════════════════════�
 echo "║                    READY                            ║"
 echo "╠══════════════════════════════════════════════════════╣"
 echo "║  Backend  →  http://127.0.0.1:${PY_BACKEND_PORT}             ║"
-echo "║  Frontend →  http://127.0.0.1:3000  (opening now)   ║"
+echo "║  Frontend →  http://127.0.0.1:5000  (opening now)   ║"
 echo "║                                                      ║"
 echo "║  Model    →  $MODEL"
 echo "║  Press Ctrl+C to stop                               ║"
@@ -288,7 +288,7 @@ echo "╚═══════════════════════�
 echo ""
 
 # Open browser (best-effort)
-URL="http://127.0.0.1:3000"
+URL="http://127.0.0.1:5000"
 if command -v xdg-open &>/dev/null; then
     (sleep 3 && xdg-open "$URL") &
 elif command -v open &>/dev/null; then

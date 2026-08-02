@@ -321,7 +321,7 @@ Write-Host "╔═════════════════════�
 Write-Host "║                    READY                            ║" -ForegroundColor Green
 Write-Host "╠══════════════════════════════════════════════════════╣" -ForegroundColor Green
 Write-Host "║  Backend  →  http://127.0.0.1:$BackendPort             ║" -ForegroundColor Green
-Write-Host "║  Frontend →  http://127.0.0.1:3000  (opening now)   ║" -ForegroundColor Green
+Write-Host "║  Frontend →  http://127.0.0.1:5000  (opening now)   ║" -ForegroundColor Green
 Write-Host "║                                                      ║" -ForegroundColor Green
 Write-Host "║  Model    →  $Model" -ForegroundColor Green
 Write-Host "║  Close this window to stop                          ║" -ForegroundColor Green
@@ -329,7 +329,7 @@ Write-Host "╚═════════════════════�
 Write-Host ""
 
 Start-Process -FilePath "powershell" -ArgumentList `
-    "-Command", "Start-Sleep 3; Start-Process 'http://127.0.0.1:3000'" `
+    "-Command", "Start-Sleep 3; Start-Process 'http://127.0.0.1:5000'" `
     -WindowStyle Hidden
 
 # Serve built frontend in foreground

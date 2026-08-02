@@ -273,7 +273,7 @@ Defaults keep symbolic reasoning disabled unless explicitly enabled.
 This repo includes two separate UI surfaces:
 
 1. React/Vite app (default for current stack)
-   - URL: `http://localhost:3000`
+   - URL: `http://localhost:5000`
    - Edit files in: `App.tsx`, `components/`, `hooks/`, `services/`
 2. Flask demo GUI (separate legacy/demo surface)
    - URL: `http://localhost:5000`

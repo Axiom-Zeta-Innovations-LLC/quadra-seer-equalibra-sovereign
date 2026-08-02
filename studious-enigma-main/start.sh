@@ -119,7 +119,7 @@ echo "  READY"
 echo "=================================================="
 echo "  Atlantean Backend: ${PY_BACKEND_URL}"
 echo "  Node API:          http://127.0.0.1:3001"
-echo "  Frontend UI:       http://127.0.0.1:3000"
+echo "  Frontend UI:       http://127.0.0.1:5000"
 echo "=================================================="
 echo ""
 
