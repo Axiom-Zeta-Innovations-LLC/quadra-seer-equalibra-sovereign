@@ -7,11 +7,18 @@ WORKDIR /app
 # Install system dependencies.
 # ffmpeg    — audio format decoding for faster-whisper (WebM, OGG, MP4, etc.)
 # libsndfile1 — libsndfile support used by audio processing libraries
-# gcc       — needed for some C-extension builds
+# gcc, g++, cmake, libstdc++-dev — required to build lancedb native extensions
+# libgomp1  — OpenMP runtime used by sentence-transformers / PyTorch
+# poppler-utils — pdftotext fallback used by pdfplumber
 RUN apt-get update && apt-get install -y \
     gcc \
+    g++ \
+    cmake \
+    libstdc++-dev \
+    libgomp1 \
     ffmpeg \
     libsndfile1 \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -22,6 +29,9 @@ RUN grep -v '^torch==' requirements.txt > /tmp/requirements.no_torch.txt \
     && pip install --no-cache-dir -r /tmp/requirements.no_torch.txt \
     && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.2.0
 
+# Create vault_data directories used by semantic search, journal, and automation
+RUN mkdir -p /app/vault_data/vector_index /app/vault_data/journal /app/vault_data/quarantine
+
 # Run as non-root for security hardening.
 RUN useradd --system --no-create-home --shell /usr/sbin/nologin vault \
     && chown -R vault:vault /app
@@ -29,6 +39,14 @@ USER vault
 
 # Copy source code
 COPY --chown=vault:vault . .
+
+# Sovereign workspace defaults — all outbound disabled unless overridden at runtime
+ENV ALLOW_OUTBOUND_NETWORK=0 \
+    ATLANTEAN_ALLOW_BROWSER_SPEECH_FALLBACK=0 \
+    ATLANTEAN_REQUIRE_LOCAL_STT=1 \
+    ATLANTEAN_JOURNAL_DIR=/app/vault_data/journal \
+    ATLANTEAN_VECTOR_DB_PATH=/app/vault_data/vector_index \
+    ATLANTEAN_QUARANTINE_DIR=/app/vault_data/quarantine
 
 # Expose port
 EXPOSE 5001

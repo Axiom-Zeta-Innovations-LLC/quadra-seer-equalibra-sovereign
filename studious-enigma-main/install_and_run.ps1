@@ -175,6 +175,25 @@ if ($Reinstall -or -not (Test-Path $InstalledFlag)) {
     }
     Ok "Installed $TorchVer"
 
+    # ── Sovereign Workspace optional deps ───────────────────────────────────
+    Log "Installing Sovereign Workspace deps (lancedb, sentence-transformers)..."
+    $sovereignPkgs = @(
+        "lancedb>=0.5.0",
+        "sentence-transformers>=2.6.0",
+        "pyarrow>=14.0.0",
+        "watchdog>=4.0.0",
+        "pydantic>=2.0.0",
+        "pypdf>=3.0.0",
+        "pdfplumber>=0.10.0",
+        "python-docx>=1.0.0"
+    )
+    & $Py -m pip install --quiet @sovereignPkgs *>> $pipLog
+    if ($LASTEXITCODE -eq 0) {
+        Ok "Sovereign Workspace deps installed (semantic search + automation)"
+    } else {
+        Warn "Sovereign Workspace deps could not be installed - semantic search will run in keyword-only mode."
+    }
+
     New-Item -Path $InstalledFlag -ItemType File -Force | Out-Null
     Ok "Python dependencies installed"
 } else {
@@ -211,6 +230,12 @@ ATLANTEAN_SESSION_SECRET=$secret
 # Disable cloud escalation (fully local)
 ALLOW_CLOUD_ESCALATION=0
 ALLOW_OUTBOUND_NETWORK=0
+
+# Sovereign Workspace - local-first defaults
+ATLANTEAN_ALLOW_BROWSER_SPEECH_FALLBACK=0
+ATLANTEAN_REQUIRE_LOCAL_STT=1
+ATLANTEAN_JOURNAL_DIR=./vault_data/journal
+ATLANTEAN_VECTOR_DB_PATH=./vault_data/vector_index
 
 # Hardware tier (options: small_quantized, medium, multi_agent)
 ATLANTEAN_HARDWARE_TIER=medium

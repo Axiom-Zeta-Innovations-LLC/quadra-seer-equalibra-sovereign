@@ -160,6 +160,23 @@ if [[ "$REINSTALL" == "1" ]] || [[ ! -f "$VENV_DIR/.installed" ]]; then
         --index-url https://download.pytorch.org/whl/cpu \
         "$TORCH_VER" || fail "pip failed installing $TORCH_VER."
 
+    # ── Sovereign Workspace optional deps ───────────────────────────────────
+    # lancedb + sentence-transformers enable semantic file search.
+    # Skipped automatically if the wheels fail (e.g. on old CPUs without AVX2).
+    log "Installing Sovereign Workspace deps (lancedb, sentence-transformers)..."
+    "$PIP" install --quiet \
+        "lancedb>=0.5.0" \
+        "sentence-transformers>=2.6.0" \
+        "pyarrow>=14.0.0" \
+        "watchdog>=4.0.0" \
+        "pydantic>=2.0.0" \
+        "pypdf>=3.0.0" \
+        "pdfplumber>=0.10.0" \
+        "python-docx>=1.0.0" \
+        2>/dev/null \
+        && ok "Sovereign Workspace deps installed (semantic search + automation)" \
+        || warn "Sovereign Workspace deps could not be installed — semantic search will run in keyword-only mode."
+
     touch "$VENV_DIR/.installed"
     ok "Python dependencies installed ($TORCH_VER)"
 else
@@ -197,6 +214,12 @@ ATLANTEAN_SESSION_SECRET=${SESSION_SECRET}
 # Disable cloud escalation (fully local)
 ALLOW_CLOUD_ESCALATION=0
 ALLOW_OUTBOUND_NETWORK=0
+
+# Sovereign Workspace — local-first defaults
+ATLANTEAN_ALLOW_BROWSER_SPEECH_FALLBACK=0
+ATLANTEAN_REQUIRE_LOCAL_STT=1
+ATLANTEAN_JOURNAL_DIR=./vault_data/journal
+ATLANTEAN_VECTOR_DB_PATH=./vault_data/vector_index
 
 # Hardware tier (options: small_quantized, medium, multi_agent)
 ATLANTEAN_HARDWARE_TIER=medium
