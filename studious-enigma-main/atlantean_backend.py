@@ -3388,12 +3388,17 @@ def ports_check():
 # ========== Privacy Status ==========
 
 @app.route('/api/atlantean/privacy/status', methods=['GET'])
-@require_auth
 def privacy_status():
     """Authoritative privacy/network status for the frontend indicator."""
-    from atlantean_core.semantic_search.config import (
-        SEMANTIC_SEARCH_ENABLED, EMBEDDING_MODEL, VECTOR_BACKEND, VECTOR_DB_PATH
-    ) if _SEMANTIC_SEARCH_AVAILABLE else (None, None, None, None)
+    if _SEMANTIC_SEARCH_AVAILABLE:
+        from atlantean_core.semantic_search.config import (
+            SEMANTIC_SEARCH_ENABLED, EMBEDDING_MODEL, VECTOR_BACKEND, VECTOR_DB_PATH
+        )
+    else:
+        SEMANTIC_SEARCH_ENABLED = False
+        EMBEDDING_MODEL = None
+        VECTOR_BACKEND = None
+        VECTOR_DB_PATH = None
     stt = check_whisper_available()
     return jsonify({
         'outbound_network': ALLOW_OUTBOUND_NETWORK,
@@ -3423,7 +3428,6 @@ def _search_unavailable():
 
 
 @app.route('/api/atlantean/search/status', methods=['GET'])
-@require_auth
 def search_status():
     if not _SEMANTIC_SEARCH_AVAILABLE:
         return jsonify({'available': False, 'reason': 'dependencies not installed'}), 200
@@ -3431,7 +3435,6 @@ def search_status():
 
 
 @app.route('/api/atlantean/search/sources', methods=['GET'])
-@require_auth
 def search_sources():
     if not _SEMANTIC_SEARCH_AVAILABLE:
         return _search_unavailable()
@@ -3439,7 +3442,6 @@ def search_sources():
 
 
 @app.route('/api/atlantean/search/source/add', methods=['POST'])
-@require_auth
 def search_source_add():
     if not _SEMANTIC_SEARCH_AVAILABLE:
         return _search_unavailable()
@@ -3456,7 +3458,6 @@ def search_source_add():
 
 
 @app.route('/api/atlantean/search/source/remove', methods=['POST'])
-@require_auth
 def search_source_remove():
     if not _SEMANTIC_SEARCH_AVAILABLE:
         return _search_unavailable()
@@ -3467,7 +3468,6 @@ def search_source_remove():
 
 
 @app.route('/api/atlantean/search/index', methods=['POST'])
-@require_auth
 def search_index():
     if not _SEMANTIC_SEARCH_AVAILABLE:
         return _search_unavailable()
@@ -3486,7 +3486,6 @@ def search_index():
 
 
 @app.route('/api/atlantean/search/index/cancel', methods=['POST'])
-@require_auth
 def search_index_cancel():
     if not _SEMANTIC_SEARCH_AVAILABLE:
         return _search_unavailable()
@@ -3495,7 +3494,6 @@ def search_index_cancel():
 
 
 @app.route('/api/atlantean/search/index/status', methods=['GET'])
-@require_auth
 def search_index_status():
     if not _SEMANTIC_SEARCH_AVAILABLE:
         return _search_unavailable()
@@ -3503,7 +3501,6 @@ def search_index_status():
 
 
 @app.route('/api/atlantean/search/query', methods=['POST'])
-@require_auth
 def search_query():
     if not _SEMANTIC_SEARCH_AVAILABLE:
         return _search_unavailable()
@@ -3529,7 +3526,6 @@ def search_query():
 
 
 @app.route('/api/atlantean/search/open', methods=['POST'])
-@require_auth
 def search_open_file():
     """Open a file in the OS default application (non-blocking)."""
     body = request.get_json(force=True, silent=True) or {}
@@ -3553,7 +3549,6 @@ def search_open_file():
 
 
 @app.route('/api/atlantean/search/reveal', methods=['POST'])
-@require_auth
 def search_reveal_file():
     """Reveal a file in the OS file manager."""
     body = request.get_json(force=True, silent=True) or {}
@@ -3577,7 +3572,6 @@ def search_reveal_file():
 
 
 @app.route('/api/atlantean/search/index', methods=['DELETE'])
-@require_auth
 def search_clear_index():
     if not _SEMANTIC_SEARCH_AVAILABLE:
         return _search_unavailable()
@@ -3602,7 +3596,6 @@ def _journal_path_for_date(date_str: str) -> str:
 
 
 @app.route('/api/atlantean/journal/append', methods=['POST'])
-@require_auth
 def journal_append():
     """Append a transcript or note entry to today's (or specified) journal."""
     body = request.get_json(force=True, silent=True) or {}
@@ -3652,7 +3645,6 @@ def journal_append():
 
 
 @app.route('/api/atlantean/journal/read', methods=['GET'])
-@require_auth
 def journal_read():
     from datetime import date
     date_str = request.args.get('date', date.today().isoformat())
@@ -3668,7 +3660,6 @@ def journal_read():
 
 
 @app.route('/api/atlantean/journal/list', methods=['GET'])
-@require_auth
 def journal_list():
     entries = []
     if os.path.isdir(JOURNAL_BASE_DIR):
@@ -3697,7 +3688,6 @@ _active_plans: dict = {}   # plan_id → AutomationPlan
 
 
 @app.route('/api/atlantean/automation/capabilities', methods=['GET'])
-@require_auth
 def automation_capabilities():
     if not _AUTOMATION_AVAILABLE:
         return jsonify({'available': False}), 200
@@ -3711,7 +3701,6 @@ def automation_capabilities():
 
 
 @app.route('/api/atlantean/automation/approved-roots', methods=['GET'])
-@require_auth
 def automation_get_roots():
     if not _AUTOMATION_AVAILABLE:
         return _auto_unavailable()
@@ -3719,7 +3708,6 @@ def automation_get_roots():
 
 
 @app.route('/api/atlantean/automation/approved-roots/add', methods=['POST'])
-@require_auth
 def automation_add_root():
     if not _AUTOMATION_AVAILABLE:
         return _auto_unavailable()
@@ -3735,7 +3723,6 @@ def automation_add_root():
 
 
 @app.route('/api/atlantean/automation/approved-roots/remove', methods=['POST'])
-@require_auth
 def automation_remove_root():
     if not _AUTOMATION_AVAILABLE:
         return _auto_unavailable()
@@ -3746,7 +3733,6 @@ def automation_remove_root():
 
 
 @app.route('/api/atlantean/automation/plan', methods=['POST'])
-@require_auth
 def automation_plan():
     """Accept a user-provided plan JSON or natural-language request."""
     if not _AUTOMATION_AVAILABLE:
@@ -3771,7 +3757,6 @@ def automation_plan():
 
 
 @app.route('/api/atlantean/automation/approve', methods=['POST'])
-@require_auth
 def automation_approve():
     if not _AUTOMATION_AVAILABLE:
         return _auto_unavailable()
@@ -3791,7 +3776,6 @@ def automation_approve():
 
 
 @app.route('/api/atlantean/automation/reject', methods=['POST'])
-@require_auth
 def automation_reject():
     if not _AUTOMATION_AVAILABLE:
         return _auto_unavailable()
@@ -3805,7 +3789,6 @@ def automation_reject():
 
 
 @app.route('/api/atlantean/automation/execute', methods=['POST'])
-@require_auth
 def automation_execute():
     if not _AUTOMATION_AVAILABLE:
         return _auto_unavailable()
@@ -3843,7 +3826,6 @@ def automation_execute():
 
 
 @app.route('/api/atlantean/automation/jobs', methods=['GET'])
-@require_auth
 def automation_jobs():
     if not _AUTOMATION_AVAILABLE:
         return _auto_unavailable()
@@ -3851,7 +3833,6 @@ def automation_jobs():
 
 
 @app.route('/api/atlantean/automation/quarantine', methods=['GET'])
-@require_auth
 def automation_quarantine_list():
     if not _AUTOMATION_AVAILABLE:
         return _auto_unavailable()
@@ -3859,7 +3840,6 @@ def automation_quarantine_list():
 
 
 @app.route('/api/atlantean/automation/quarantine/restore', methods=['POST'])
-@require_auth
 def automation_quarantine_restore():
     if not _AUTOMATION_AVAILABLE:
         return _auto_unavailable()
@@ -3874,7 +3854,6 @@ def automation_quarantine_restore():
 
 
 @app.route('/api/atlantean/automation/quarantine/purge', methods=['POST'])
-@require_auth
 def automation_quarantine_purge():
     if not _AUTOMATION_AVAILABLE:
         return _auto_unavailable()
@@ -3887,7 +3866,6 @@ def automation_quarantine_purge():
 # ========== Health Check ==========
 
 @app.route('/api/atlantean/operations/summary', methods=['GET'])
-@require_auth
 def operations_summary():
     """Aggregated summary for the Operations Center Action Center."""
     session_id = request.args.get('session_id', 'default')
@@ -3919,7 +3897,6 @@ def operations_summary():
 
 
 @app.route('/api/atlantean/privacy/settings', methods=['GET'])
-@require_auth
 def privacy_settings_get():
     """Read privacy settings (Redis-backed per session, falls back to defaults)."""
     session_id = request.args.get('session_id', 'default')
@@ -3949,7 +3926,6 @@ def privacy_settings_get():
 
 
 @app.route('/api/atlantean/privacy/settings', methods=['PATCH'])
-@require_auth
 def privacy_settings_patch():
     """Persist privacy setting changes."""
     session_id = request.args.get('session_id') or request.json.get('session_id', 'default')
@@ -3971,7 +3947,6 @@ def privacy_settings_patch():
 
 
 @app.route('/api/atlantean/privacy/lockdown', methods=['POST'])
-@require_auth
 def privacy_lockdown():
     """Activate sovereign lockdown — blocks all cloud routing."""
     session_id = (request.json or {}).get('session_id', 'default')
@@ -3990,7 +3965,6 @@ def privacy_lockdown():
 
 
 @app.route('/api/atlantean/privacy/purge-session', methods=['POST'])
-@require_auth
 def privacy_purge_session():
     """Delete temporary session data from Redis."""
     session_id = (request.json or {}).get('session_id', 'default')
@@ -4013,14 +3987,12 @@ def privacy_purge_session():
 
 
 @app.route('/api/atlantean/tasks/current', methods=['GET'])
-@require_auth
 def tasks_current():
     """Returns the current active task (stub — no task runner implemented yet)."""
     return jsonify({'task': None, 'queue_depth': 0})
 
 
 @app.route('/api/atlantean/memory/proposals', methods=['GET'])
-@require_auth
 def memory_proposals():
     """Returns pending memory proposals (stub — no proposal queue implemented yet)."""
     return jsonify({'proposals': [], 'pending': 0})
