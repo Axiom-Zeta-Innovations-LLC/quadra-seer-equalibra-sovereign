@@ -52,6 +52,11 @@ def _load_whisper_model(model_size: str, device: str, compute_type: str) -> Any:
                     "faster-whisper is not installed. "
                     "Run: pip install faster-whisper"
                 ) from exc
+            if WhisperModel is None or not callable(WhisperModel):
+                raise RuntimeError(
+                    "faster-whisper is not available (stub or import failed). "
+                    "Run: pip install faster-whisper"
+                )
             _whisper_model = WhisperModel(model_size, device=device, compute_type=compute_type)
         return _whisper_model
 

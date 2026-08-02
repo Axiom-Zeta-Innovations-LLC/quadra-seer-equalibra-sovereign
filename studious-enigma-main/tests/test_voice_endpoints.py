@@ -28,22 +28,26 @@ def _stub(name: str, **attrs) -> types.ModuleType:
 
 _stub('faster_whisper', WhisperModel=None)
 _stub('piper',          PiperVoice=None)
-# torch and torchvision need sub-module stubs to satisfy atlantean_core imports.
-_torch = _stub('torch')
-_torch.tensor       = lambda *a, **kw: None
-_torch.nn           = _stub('torch.nn')
-_torch.no_grad      = lambda: __import__('contextlib').nullcontext()
+# Only stub torch when it is NOT already imported; mutating the real torch module
+# corrupts torch.load for every subsequent test in the combined validation run.
+if 'torch' not in sys.modules:
+    _torch = _stub('torch')
+    _torch.tensor   = lambda *a, **kw: None
+    _torch.nn       = _stub('torch.nn')
+    _torch.no_grad  = lambda: __import__('contextlib').nullcontext()
 _stub('torchvision')
 _stub('redis',
       Redis=lambda **kw: (_ for _ in ()).throw(Exception("stub")),
       ConnectionError=ConnectionError,
       TimeoutError=TimeoutError)
-# scikit-learn / numpy stubs (bare minimum to avoid ImportError)
-_np = _stub('numpy')
-_np.ndarray  = type('ndarray', (), {})
-_np.array    = lambda *a, **kw: []
-_np.zeros    = lambda *a, **kw: []
-_np.float64  = float
+# Only stub numpy/sklearn when not already imported — mutating the real numpy
+# breaks np.random for every subsequent test in the combined validation run.
+if 'numpy' not in sys.modules:
+    _np = _stub('numpy')
+    _np.ndarray  = type('ndarray', (), {})
+    _np.array    = lambda *a, **kw: []
+    _np.zeros    = lambda *a, **kw: []
+    _np.float64  = float
 _stub('sklearn')
 _stub('sklearn.preprocessing')
 _stub('sklearn.cluster')
