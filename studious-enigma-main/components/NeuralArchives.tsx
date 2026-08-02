@@ -14,12 +14,14 @@ interface NeuralArchivesProps {
   currentSessionId: string;
   onNewSession: () => void;
   onRestoredSnapshot?: () => Promise<void> | void;
+  onSelectSnapshot?: (snapshot: AtlanteanSnapshotRecord) => void;
 }
 
 const NeuralArchives: React.FC<NeuralArchivesProps> = ({
   currentSessionId,
   onNewSession,
   onRestoredSnapshot,
+  onSelectSnapshot,
 }) => {
   const [archives, setArchives] = useState<AtlanteanSnapshotRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -153,7 +155,7 @@ const NeuralArchives: React.FC<NeuralArchivesProps> = ({
           archives.map((snapshot) => (
             <div 
               key={snapshot.id}
-              onClick={() => handleRestore(snapshot.id)}
+              onClick={() => onSelectSnapshot ? onSelectSnapshot(snapshot) : handleRestore(snapshot.id)}
               className={`group relative p-4 rounded-xl border transition-all cursor-pointer transform-gpu hover:translate-x-1 ${
                 busySnapshotId === snapshot.id
                   ? 'bg-[var(--color-primary)]/10 border-[var(--color-primary)] shadow-[0_0_15px_rgba(74,222,128,0.1)]'

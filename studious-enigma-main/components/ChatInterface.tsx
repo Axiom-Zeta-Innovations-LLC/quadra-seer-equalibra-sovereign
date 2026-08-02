@@ -18,7 +18,7 @@ import { useTextToSpeech, wakeAudioContext, getAudioState } from '../hooks/useTe
 import { useLiveSession } from '../hooks/useLiveSession';
 import { USER_PROFILE_KEY } from '../constants';
 import { useAtlantean } from '../hooks/useAtlantean';
-import { createAndSetStableSessionId, getChatHistory, setStableSessionId } from '../services/atlanteanService';
+import { createAndSetStableSessionId, getChatHistory, setStableSessionId, restoreSnapshot, type AtlanteanSnapshotRecord } from '../services/atlanteanService';
 import { getTtsVoice, setTtsVoice } from '../services/settingsService';
 import { TtsVoice } from '../services/ttsService';
 import { decryptSyncPayload, encryptSyncPayload, isEncryptedSyncPackage } from '../services/syncEnvelope';
@@ -66,6 +66,8 @@ const ChatInterface: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<AtlanteanSnapshotRecord | null>(null);
+  const [isRestoringPreview, setIsRestoringPreview] = useState(false);
 
   const [userProfile, setUserProfile] = useState<UserProfile>({
     username: 'Operator',
@@ -385,6 +387,31 @@ const ChatInterface: React.FC = () => {
   const handleSnapshotRestored = useCallback(async () => {
     await loadSession(convoId);
   }, [convoId, loadSession]);
+
+  const handleRestoreFromPreview = useCallback(async (snapshotId: string) => {
+    try {
+      setIsRestoringPreview(true);
+      await restoreSnapshot(snapshotId, convoId);
+      setSelectedSnapshot(null);
+      await handleSnapshotRestored();
+      notify('success', 'Snapshot restored.');
+    } catch (err) {
+      notify('error', 'Failed to restore snapshot.');
+    } finally {
+      setIsRestoringPreview(false);
+    }
+  }, [convoId, handleSnapshotRestored, notify]);
+
+  const formatSnapshotFullDate = (value?: number | string): string => {
+    if (typeof value === 'number') return new Date(value).toLocaleString();
+    if (typeof value === 'string') {
+      const n = Number(value);
+      if (!Number.isNaN(n)) return new Date(n).toLocaleString();
+      const d = new Date(value);
+      if (!Number.isNaN(d.getTime())) return d.toLocaleString();
+    }
+    return 'Unknown';
+  };
 
   useEffect(() => {
     const initData = async () => {
@@ -726,6 +753,132 @@ const ChatInterface: React.FC = () => {
         onClose={handleLiveDisconnect}
       />
 
+      {selectedSnapshot && (
+        <div className="fixed inset-0 z-50 flex items-stretch justify-end">
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => setSelectedSnapshot(null)}
+          />
+          <div className="relative flex h-full w-full max-w-[520px] flex-col bg-[#070b10] shadow-2xl" style={{ borderLeft: '1px solid rgba(255,255,255,0.08)' }}>
+            {/* header */}
+            <div className="flex-shrink-0 flex items-start justify-between gap-4 p-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              <div className="min-w-0">
+                <p className="text-[8px] font-mono text-[var(--color-primary)] uppercase tracking-[0.3em]">Neural Snapshot</p>
+                <h2 className="mt-1 text-sm font-black text-white uppercase tracking-wider leading-tight truncate">
+                  {selectedSnapshot.label || 'Phase Lock Snapshot'}
+                </h2>
+                <p className="mt-1 text-[9px] font-mono text-gray-600 break-all">{selectedSnapshot.id}</p>
+              </div>
+              <button
+                onClick={() => setSelectedSnapshot(null)}
+                className="flex-shrink-0 p-2 text-gray-500 hover:text-white transition-colors rounded-lg hover:bg-white/5"
+              >
+                <Icon name="x-circle" className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* scrollable body */}
+            <div className="flex-1 overflow-y-auto scrollbar-hide p-5 space-y-4">
+              {/* metadata grid */}
+              <div className="grid grid-cols-2 gap-3">
+                {([
+                  ['Session', (selectedSnapshot.session_id?.split('-')[0] ?? '—') + '…'],
+                  ['Version', String(selectedSnapshot.version ?? '—')],
+                  ['Source', selectedSnapshot.source ?? '—'],
+                  ['Captured', formatSnapshotFullDate(selectedSnapshot.created_at)],
+                ] as [string, string][]).map(([label, value]) => (
+                  <div key={label} className="rounded-xl bg-white/5 border border-white/5 p-3">
+                    <p className="text-[8px] font-mono text-gray-500 uppercase tracking-wider">{label}</p>
+                    <p className="mt-1 text-[10px] font-mono text-gray-200 break-all">{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* phase lock */}
+              {selectedSnapshot.phase_lock && (
+                <div className="rounded-xl bg-white/5 border border-white/5 p-4">
+                  <p className="mb-3 text-[8px] font-mono text-[var(--color-primary)] uppercase tracking-[0.2em]">Phase Lock</p>
+                  {([
+                    ['Φ (Integrated)', selectedSnapshot.phase_lock.Phi],
+                    ['φ₁ Mean', selectedSnapshot.phase_lock.phi1_mean],
+                    ['φ₅ Mean', selectedSnapshot.phase_lock.phi5_mean],
+                  ] as [string, number | undefined][]).map(([label, value]) => {
+                    const pct = typeof value === 'number' ? Math.min(100, Math.max(0, Math.abs(value) * 100)) : 0;
+                    return (
+                      <div key={label} className="mb-3 last:mb-0">
+                        <div className="flex justify-between items-baseline mb-1">
+                          <span className="text-[9px] font-mono text-gray-400">{label}</span>
+                          <span className="text-[9px] font-mono text-white tabular-nums">
+                            {typeof value === 'number' ? value.toFixed(4) : '—'}
+                          </span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-[var(--color-primary)] transition-all"
+                            style={{ width: `${pct}%`, opacity: 0.75 }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* HRM state */}
+              {selectedSnapshot.hrm && Object.keys(selectedSnapshot.hrm).length > 0 && (
+                <div className="rounded-xl bg-white/5 border border-white/5 p-4">
+                  <p className="mb-3 text-[8px] font-mono text-cyan-400 uppercase tracking-[0.2em]">HRM State</p>
+                  <div className="space-y-2">
+                    {Object.entries(selectedSnapshot.hrm).map(([k, v]) => (
+                      <div key={k} className="flex justify-between items-start gap-3">
+                        <span className="shrink-0 text-[9px] font-mono text-gray-500 uppercase">{k}</span>
+                        <span className="text-[9px] font-mono text-gray-300 text-right break-all">
+                          {typeof v === 'number'
+                            ? v.toFixed(4)
+                            : typeof v === 'object'
+                            ? JSON.stringify(v)
+                            : String(v ?? '—')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* full IDs */}
+              <div className="rounded-xl bg-white/5 border border-white/5 p-4 space-y-3">
+                <div>
+                  <p className="text-[8px] font-mono text-gray-500 uppercase tracking-wider mb-1">Snapshot ID</p>
+                  <p className="text-[9px] font-mono text-gray-400 break-all">{selectedSnapshot.id}</p>
+                </div>
+                <div>
+                  <p className="text-[8px] font-mono text-gray-500 uppercase tracking-wider mb-1">Session ID</p>
+                  <p className="text-[9px] font-mono text-gray-400 break-all">{selectedSnapshot.session_id ?? '—'}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* footer */}
+            <div className="flex-shrink-0 flex flex-col gap-2 p-5 bg-black/40" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              <button
+                onClick={() => handleRestoreFromPreview(selectedSnapshot.id)}
+                disabled={isRestoringPreview}
+                className="w-full flex items-center justify-center gap-2 py-3 bg-[var(--color-primary)] text-black font-bold text-[10px] uppercase tracking-[0.2em] rounded-xl hover:opacity-90 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Icon name="refresh" className={`w-4 h-4 ${isRestoringPreview ? 'animate-spin' : ''}`} />
+                {isRestoringPreview ? 'Restoring…' : 'Restore Snapshot'}
+              </button>
+              <button
+                onClick={() => setSelectedSnapshot(null)}
+                className="w-full py-2.5 bg-white/5 text-gray-400 font-bold text-[10px] uppercase tracking-[0.2em] rounded-xl border border-white/10 hover:bg-white/10 transition-all active:scale-95"
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showOnboarding && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm p-6">
           <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-black/70 p-6 shadow-2xl">
@@ -802,6 +955,7 @@ const ChatInterface: React.FC = () => {
             currentSessionId={convoId}
             onNewSession={startNewSession}
             onRestoredSnapshot={handleSnapshotRestored}
+            onSelectSnapshot={setSelectedSnapshot}
           />
         )}
       </aside>
