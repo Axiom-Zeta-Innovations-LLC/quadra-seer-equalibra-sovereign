@@ -76,11 +76,12 @@ if (-not $OllamaCmd) {
         -OutFile $installer -UseBasicParsing
     Write-Host "  Running Ollama installer (follow the GUI prompts)..."
     Start-Process -FilePath $installer -Wait
-    # Refresh PATH
+    # Refresh PATH for current session (GUI installer only updates registry)
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
-                [System.Environment]::GetEnvironmentVariable("Path","User")
+                [System.Environment]::GetEnvironmentVariable("Path","User") + ";" +
+                "$env:LOCALAPPDATA\Programs\Ollama"
     if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
-        Fail "Ollama installation failed or not on PATH.`nInstall manually from https://ollama.com/download then re-run this script."
+        Fail "Ollama installed but not on PATH.`nClose this window, open a NEW PowerShell window, and re-run install_and_run.bat."
     }
     Ok "Ollama installed"
 } else {
@@ -141,19 +142,31 @@ $Pip = Join-Path $VenvDir "Scripts\pip.exe"
 $InstalledFlag = Join-Path $VenvDir ".installed"
 
 if ($Reinstall -or -not (Test-Path $InstalledFlag)) {
-    Log "Installing Python dependencies (torch CPU - ~800 MB, please wait)..."
+    # Pick torch version: 2.2.0 has no Python 3.12 Windows wheels; use 2.4.0+ for 3.12+
+    $PyMinor = [int](&$Py -c "import sys; print(sys.version_info.minor)")
+    $TorchVer = if ($PyMinor -ge 12) { "torch==2.4.0" } else { "torch==2.2.0" }
+    Log "Installing Python dependencies (torch CPU $TorchVer - may take a few minutes)..."
     & $Pip install --quiet --upgrade pip
 
-    # Build requirements without torch / voice deps
-    $reqs = Get-Content "$ScriptDir\requirements.txt" | 
-        Where-Object { $_ -notmatch "^torch==" -and $_ -notmatch "^faster-whisper" -and $_ -notmatch "^piper-tts" }
+    # Exclude torch and optional heavy voice deps from base requirements
+    $reqs = Get-Content "$ScriptDir\requirements.txt" |
+        Where-Object { $_ -notmatch "^torch" -and $_ -notmatch "^faster-whisper" -and $_ -notmatch "^piper-tts" }
     $tmpReqs = "$env:TEMP\atlantean_reqs.txt"
     $reqs | Set-Content $tmpReqs
 
-    & $Pip install --quiet -r $tmpReqs
+    $pipResult = & $Pip install -r $tmpReqs 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host $pipResult -ForegroundColor Red
+        Fail "pip failed installing base dependencies. See output above."
+    }
 
-    # CPU-only torch
-    & $Pip install --quiet --index-url https://download.pytorch.org/whl/cpu "torch==2.2.0"
+    # CPU-only torch (version matched to Python)
+    $torchResult = & $Pip install --index-url https://download.pytorch.org/whl/cpu $TorchVer 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host $torchResult -ForegroundColor Red
+        Fail "pip failed installing $TorchVer. See output above."
+    }
+    Ok "Installed $TorchVer"
 
     New-Item -Path $InstalledFlag -ItemType File -Force | Out-Null
     Ok "Python dependencies installed"
@@ -243,6 +256,13 @@ if (-not $healthy) {
     Fail "Backend health-check timed out."
 }
 Ok "Backend healthy (PID: $($BackendProc.Id))"
+
+# ── Pre-flight: verify critical imports loaded successfully ──────────────────
+$importCheck = & $Py -c "import flask, torch, numpy, redis" 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host $importCheck -ForegroundColor Yellow
+    Warn "Some optional imports failed (non-fatal if only voice deps are missing)"
+}
 
 # ── 10. Open browser and launch Vite ─────────────────────────────────────────
 Write-Host ""

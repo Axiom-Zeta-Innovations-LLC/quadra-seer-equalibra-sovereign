@@ -140,22 +140,28 @@ PY="$VENV_DIR/bin/python3"
 PIP="$VENV_DIR/bin/pip"
 
 if [[ "$REINSTALL" == "1" ]] || [[ ! -f "$VENV_DIR/.installed" ]]; then
-    log "Installing Python dependencies (torch CPU build — this is large, ~800 MB)..."
+    # Pick torch version: 2.2.0 has no Python 3.12 wheels; use 2.4.0+ for 3.12+
+    PY_MINOR=$("$PY" -c "import sys; print(sys.version_info.minor)")
+    TORCH_VER="torch==2.2.0"
+    [[ "$PY_MINOR" -ge 12 ]] && TORCH_VER="torch==2.4.0"
+
+    log "Installing Python dependencies ($TORCH_VER CPU - may take a few minutes)..."
     "$PIP" install --quiet --upgrade pip
 
-    # Install everything except torch first (avoids CUDA torch being pulled by default)
-    grep -v '^torch==' "$SCRIPT_DIR/requirements.txt" | \
+    # Exclude torch and optional heavy voice deps from base requirements
+    grep -v '^torch' "$SCRIPT_DIR/requirements.txt" | \
         grep -v '^faster-whisper' | grep -v '^piper-tts' \
         > /tmp/atlantean_reqs.txt || true
-    "$PIP" install --quiet -r /tmp/atlantean_reqs.txt
 
-    # Install CPU-only torch
+    "$PIP" install --quiet -r /tmp/atlantean_reqs.txt || \
+        fail "pip failed installing base dependencies. Check output above."
+
     "$PIP" install --quiet \
         --index-url https://download.pytorch.org/whl/cpu \
-        "torch==2.2.0"
+        "$TORCH_VER" || fail "pip failed installing $TORCH_VER."
 
     touch "$VENV_DIR/.installed"
-    ok "Python dependencies installed"
+    ok "Python dependencies installed ($TORCH_VER)"
 else
     ok "Python dependencies already installed (use --reinstall to refresh)"
 fi
