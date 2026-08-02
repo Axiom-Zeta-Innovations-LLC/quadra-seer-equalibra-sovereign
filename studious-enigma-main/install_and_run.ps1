@@ -155,16 +155,20 @@ if ($Reinstall -or -not (Test-Path $InstalledFlag)) {
     $tmpReqs = "$env:TEMP\atlantean_reqs.txt"
     $reqs | Set-Content $tmpReqs
 
-    $pipResult = & $Pip install -r $tmpReqs 2>&1
+    $pipLog = "$ScriptDir\pip_install.log"
+    # Use *> to capture all streams; avoids PowerShell NativeCommandError noise
+    & $Py -m pip install -r $tmpReqs *> $pipLog
     if ($LASTEXITCODE -ne 0) {
-        Write-Host $pipResult -ForegroundColor Red
+        Write-Host "`n--- pip output (also saved to pip_install.log) ---" -ForegroundColor Yellow
+        Get-Content $pipLog | Write-Host -ForegroundColor Red
         Fail "pip failed installing base dependencies. See output above."
     }
 
     # CPU-only torch (version matched to Python)
-    $torchResult = & $Pip install --index-url https://download.pytorch.org/whl/cpu $TorchVer 2>&1
+    & $Py -m pip install --index-url https://download.pytorch.org/whl/cpu $TorchVer *>> $pipLog
     if ($LASTEXITCODE -ne 0) {
-        Write-Host $torchResult -ForegroundColor Red
+        Write-Host "`n--- pip output (also saved to pip_install.log) ---" -ForegroundColor Yellow
+        Get-Content $pipLog | Select-Object -Last 40 | Write-Host -ForegroundColor Red
         Fail "pip failed installing $TorchVer. See output above."
     }
     Ok "Installed $TorchVer"
