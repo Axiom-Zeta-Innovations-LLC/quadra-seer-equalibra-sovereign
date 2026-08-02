@@ -34,3 +34,5 @@ quadra-seer-intelligence.zip
 *.sw?
 .env.local
 .env*.local
+backend.log
+backend_err.log

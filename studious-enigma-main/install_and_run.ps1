@@ -208,12 +208,17 @@ PY_BACKEND_PORT=5001
 # ── 9. Start backend ─────────────────────────────────────────────────────────
 Log "Starting Atlantean backend..."
 $BackendPort = 5001
+$BackendLog  = "$ScriptDir\backend.log"
+
+# Run in background, redirect output to log file so errors are always visible
 $BackendProc = Start-Process -FilePath $Py `
     -ArgumentList "$ScriptDir\atlantean_backend.py" `
     -WorkingDirectory $ScriptDir `
-    -PassThru -WindowStyle Normal
+    -RedirectStandardOutput $BackendLog `
+    -RedirectStandardError  "$ScriptDir\backend_err.log" `
+    -PassThru -WindowStyle Hidden
 
-Write-Host "  Waiting for backend to be healthy..."
+Write-Host "  Waiting for backend to be healthy (logs -> $BackendLog)..."
 $healthy = $false
 for ($i = 0; $i -lt 60; $i++) {
     Start-Sleep -Seconds 1
@@ -223,10 +228,20 @@ for ($i = 0; $i -lt 60; $i++) {
         $healthy = $true; break
     } catch { }
     if ($BackendProc.HasExited) {
-        Fail "Backend exited before becoming healthy. Check the Python console window for errors."
+        Write-Host ""
+        Write-Host "-- backend.log (last 40 lines) --" -ForegroundColor Yellow
+        if (Test-Path $BackendLog) { Get-Content $BackendLog | Select-Object -Last 40 }
+        Write-Host "-- backend_err.log --" -ForegroundColor Yellow
+        if (Test-Path "$ScriptDir\backend_err.log") { Get-Content "$ScriptDir\backend_err.log" | Select-Object -Last 40 }
+        Fail "Backend exited before becoming healthy. See log output above."
     }
 }
-if (-not $healthy) { Fail "Backend health-check timed out." }
+if (-not $healthy) {
+    Write-Host ""
+    Write-Host "-- backend.log (last 20 lines) --" -ForegroundColor Yellow
+    if (Test-Path $BackendLog) { Get-Content $BackendLog | Select-Object -Last 20 }
+    Fail "Backend health-check timed out."
+}
 Ok "Backend healthy (PID: $($BackendProc.Id))"
 
 # ── 10. Open browser and launch Vite ─────────────────────────────────────────
