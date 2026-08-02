@@ -12,6 +12,12 @@ import time
 import sys
 import os
 
+# Ensure Unicode output works on Windows consoles (cp1252 → UTF-8)
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 BASE_URL = os.getenv("ATLANTEAN_BASE_URL", "http://127.0.0.1:5001")
 ATLANTEAN_API = f"{BASE_URL}/api/atlantean"
 

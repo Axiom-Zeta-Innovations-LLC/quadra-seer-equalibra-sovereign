@@ -14,6 +14,13 @@ This demonstrates all components working together:
 
 import sys
 import os
+
+# Ensure Unicode output works on Windows consoles (cp1252 → UTF-8)
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'atlantean_core'))
 
 import torch

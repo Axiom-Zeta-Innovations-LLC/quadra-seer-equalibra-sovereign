@@ -12,6 +12,12 @@ from flask_cors import CORS
 from flask_session import Session
 import sys
 import os
+
+# Ensure Unicode output works on Windows consoles (cp1252 → UTF-8)
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 import io
 import pickle
 import uuid

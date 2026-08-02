@@ -227,6 +227,8 @@ PY_BACKEND_PORT=5001
 }
 
 # ── 9. Start backend ─────────────────────────────────────────────────────────
+# Force UTF-8 I/O so Unicode emoji in print() don't crash on cp1252 consoles
+$env:PYTHONIOENCODING = 'utf-8'
 Log "Starting Atlantean backend..."
 $BackendPort = 5001
 $BackendLog  = "$ScriptDir\backend.log"
