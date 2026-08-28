@@ -29,9 +29,13 @@ if [[ "${MODE}" != "local" && "${MODE}" != "--local" ]]; then
     exit 1
 fi
 
-PY_BACKEND_PORT="${PY_BACKEND_PORT:-5001}"
+# Resolve port from env, then .env.local, then default.
+[[ -f ".env.local" ]] && source <(grep -E '^ATLANTEAN_PORT=' .env.local) 2>/dev/null || true
+ATLANTEAN_PORT="${ATLANTEAN_PORT:-5001}"
+PY_BACKEND_PORT="$ATLANTEAN_PORT"
 PY_BACKEND_URL="http://127.0.0.1:${PY_BACKEND_PORT}"
 HEALTH_URL="${PY_BACKEND_URL}/health"
+NODE_API_PORT="${NODE_API_PORT:-5000}"
 START_NODE_API="${START_NODE_API:-0}"
 
 if [[ -x ".venv/bin/python3" ]]; then
@@ -87,7 +91,13 @@ PY_BACKEND_PID=$!
 echo "⏳ Waiting for backend health at ${HEALTH_URL} ..."
 for i in $(seq 1 60); do
     if curl -fsS "${HEALTH_URL}" >/dev/null 2>&1; then
-        echo "✅ Atlantean backend is healthy (PID: ${PY_BACKEND_PID})"
+        # Liveness confirmed — check subsystem status and warn on missing Ollama.
+        _deep=$(curl -fsS "${PY_BACKEND_URL}/health/deep" 2>/dev/null || echo '{}')
+        if echo "$_deep" | grep -q '"ollama":"unavailable"'; then
+            echo "⚠️  Backend up (PID: ${PY_BACKEND_PID}) — Ollama unavailable. Start Ollama and pull a model before chatting."
+        else
+            echo "✅ Atlantean backend is healthy (PID: ${PY_BACKEND_PID})"
+        fi
         break
     fi
     if ! kill -0 "${PY_BACKEND_PID}" 2>/dev/null; then
@@ -103,8 +113,8 @@ done
 
 if [[ "${START_NODE_API}" == "1" ]]; then
     echo ""
-    echo "🟦 Starting Node API backend on port 3001..."
-    npm start &
+    echo "🟦 Starting Node API (server.js) on port ${NODE_API_PORT}..."
+    NODE_API_PORT="${NODE_API_PORT}" npm start &
     NODE_API_PID=$!
     echo "✅ Node API launched (PID: ${NODE_API_PID})"
 else

@@ -286,10 +286,10 @@ If your GUI edits are not reflecting, confirm you are editing the files for the 
 
 ### CORS Configuration
 
-Both backends restrict cross-origin requests to whitelisted origins. See [CORS_CONFIG.md](CORS_CONFIG.md) for details on:
-- Development setup (defaults to localhost)
-- Production deployment (requires explicit `ALLOWED_ORIGINS` env var)
-- Troubleshooting CORS errors
+Both backends restrict cross-origin requests to whitelisted origins. Key points:
+- Development: defaults to `localhost` origins; no configuration needed
+- Production: set `ALLOWED_ORIGINS=https://your-domain.com` (comma-separated) before starting the backend
+- Troubleshooting: check the `ALLOWED_ORIGINS` env var and the `ATLANTEAN_BIND_HOST` setting
 
 ### Provider Security
 

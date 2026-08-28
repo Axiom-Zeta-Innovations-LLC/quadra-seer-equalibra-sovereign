@@ -12,7 +12,8 @@ dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const port = parseInt(process.env.PORT || '5000', 10);
+// NODE_API_PORT is the dedicated var; PORT is kept for legacy compatibility.
+const port = parseInt(process.env.NODE_API_PORT || process.env.PORT || '5000', 10);
 
 // Python backend — matches VITE_ATLANTEAN_PROXY_TARGET in .env.local
 const backendOrigin = process.env.VITE_ATLANTEAN_PROXY_TARGET || 'http://127.0.0.1:5001';

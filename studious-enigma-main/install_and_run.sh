@@ -230,7 +230,7 @@ ATLANTEAN_VECTOR_DB_PATH=./vault_data/vector_index
 ATLANTEAN_HARDWARE_TIER=medium
 
 # Port
-PY_BACKEND_PORT=5001
+ATLANTEAN_PORT=5001
 EOF
     chmod 600 "$ENV_FILE"
     ok ".env.local created"
@@ -244,7 +244,10 @@ else
 fi
 
 # ── 9. Start services ────────────────────────────────────────────────────────
-PY_BACKEND_PORT="${PY_BACKEND_PORT:-5001}"
+# Resolve port from env, then .env.local, then default.
+[[ -f "$SCRIPT_DIR/.env.local" ]] && source <(grep -E '^ATLANTEAN_PORT=' "$SCRIPT_DIR/.env.local") 2>/dev/null || true
+ATLANTEAN_PORT="${ATLANTEAN_PORT:-5001}"
+PY_BACKEND_PORT="$ATLANTEAN_PORT"
 PY_BACKEND_PID=""
 NODE_PID=""
 
@@ -265,7 +268,13 @@ PY_BACKEND_PID=$!
 echo "  Waiting for backend to be healthy..."
 for i in $(seq 1 60); do
     if curl -fsS "http://127.0.0.1:${PY_BACKEND_PORT}/health" &>/dev/null; then
-        ok "Backend healthy (PID: $PY_BACKEND_PID)"
+        # Liveness confirmed — check subsystem status and warn on missing Ollama.
+        _deep=$(curl -fsS "http://127.0.0.1:${PY_BACKEND_PORT}/health/deep" 2>/dev/null || echo '{}')
+        if echo "$_deep" | grep -q '"ollama":"unavailable"'; then
+            warn "Backend up (PID: $PY_BACKEND_PID) — Ollama unavailable. Start Ollama and pull a model before chatting."
+        else
+            ok "Backend healthy (PID: $PY_BACKEND_PID)"
+        fi
         break
     fi
     if ! kill -0 "$PY_BACKEND_PID" 2>/dev/null; then

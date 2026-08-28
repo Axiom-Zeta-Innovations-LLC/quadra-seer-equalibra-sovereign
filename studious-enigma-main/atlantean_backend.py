@@ -272,7 +272,8 @@ PROVIDER_CAPABILITIES = build_provider_capability_registry(
 ATLANTEAN_API_TOKEN: str = (os.getenv('ATLANTEAN_API_TOKEN') or '').strip()
 # Bind address: 127.0.0.1 for Vault (loopback-only), 0.0.0.0 for Docker/LAN.
 ATLANTEAN_BIND_HOST: str = (os.getenv('ATLANTEAN_BIND_HOST') or '127.0.0.1').strip()
-ATLANTEAN_BIND_PORT: int = int(os.getenv('ATLANTEAN_PORT') or os.getenv('PORT') or '5001')
+# Use ATLANTEAN_PORT only — PORT is consumed by server.js and must not be shared.
+ATLANTEAN_BIND_PORT: int = int(os.getenv('ATLANTEAN_PORT') or '5001')
 
 # Per-IP rate limiting for the streaming endpoint.
 _stream_rl_calls: Dict[str, list] = {}
