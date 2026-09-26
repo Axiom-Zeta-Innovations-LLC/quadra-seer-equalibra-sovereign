@@ -77,14 +77,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    environment:
-      NODE_ENV: production
-      PORT: 5000
-      VITE_ATLANTEAN_PROXY_TARGET: http://backend:5001
-      # Must match ATLANTEAN_API_TOKEN so the browser sends the bearer header.
-      VITE_API_TOKEN: ${VITE_API_TOKEN:?VITE_API_TOKEN must match ATLANTEAN_API_TOKEN}
+      args:
+        # Build-time only: Vite bakes VITE_* vars into the JS bundle, so the
+        # token must be passed here (runtime `environment:` would NOT work).
+        # Must match ATLANTEAN_API_TOKEN so the browser sends the Bearer token.
+        VITE_API_TOKEN: ${VITE_API_TOKEN:?VITE_API_TOKEN must match ATLANTEAN_API_TOKEN}
+    # NOTE: VITE_ATLANTEAN_PROXY_TARGET and PORT only affected the old vite dev
+    # server; the production image is nginx (port 80) with /api + /health
+    # proxied to the backend (see nginx.conf).
     ports:
-      - "5000:5000"
+      # host:container -- nginx listens on 80 inside the container
+      - "5000:80"
     depends_on:
       backend:
         condition: service_healthy
