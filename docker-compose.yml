@@ -22,8 +22,8 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
-      ATLANTEAN_SESSION_SECRET: ${ATLANTEAN_SESSION_SECRET:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5000,http://127.0.0.1:5000}
+      ATLANTEAN_SESSION_SECRET: ${ATLANTEAN_SESSION_SECRET:?ATLANTEAN_SESSION_SECRET must be set to a random value}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
       # Local LLM — point at a running Ollama/llama.cpp/vLLM instance.
       ATLANTEAN_LLM_PROVIDER: ${ATLANTEAN_LLM_PROVIDER:-local}
@@ -45,8 +45,8 @@ services:
       ATLANTEAN_JOURNAL_DIR: /app/vault_data/journal
       ATLANTEAN_VECTOR_DB_PATH: /app/vault_data/vector_index
       ATLANTEAN_INDEX_MAX_FILE_MB: ${ATLANTEAN_INDEX_MAX_FILE_MB:-50}
-      # Authentication — set to a long random secret in production.
-      ATLANTEAN_API_TOKEN: ${ATLANTEAN_API_TOKEN:-}
+      # Authentication — required for non-loopback deployment.
+      ATLANTEAN_API_TOKEN: ${ATLANTEAN_API_TOKEN:?ATLANTEAN_API_TOKEN must be set to a long random value}
       ATLANTEAN_BIND_HOST: 0.0.0.0
     # host.docker.internal resolves on Docker Desktop (Mac/Windows).
     # On Linux Docker Engine it requires this explicit mapping.
@@ -74,18 +74,17 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: node:20-alpine
-    working_dir: /app
+    build:
+      context: .
+      dockerfile: Dockerfile
     environment:
+      NODE_ENV: production
+      PORT: 5000
       VITE_ATLANTEAN_PROXY_TARGET: http://backend:5001
       # Must match ATLANTEAN_API_TOKEN so the browser sends the bearer header.
-      VITE_API_TOKEN: ${VITE_API_TOKEN:-${ATLANTEAN_API_TOKEN:-}}
+      VITE_API_TOKEN: ${VITE_API_TOKEN:?VITE_API_TOKEN must match ATLANTEAN_API_TOKEN}
     ports:
       - "5000:5000"
-    volumes:
-      - .:/app
-      - node_modules_cache:/app/node_modules
-    command: sh -c "npm install --legacy-peer-deps && npm run dev -- --host 0.0.0.0 --port 5000"
     depends_on:
       backend:
         condition: service_healthy

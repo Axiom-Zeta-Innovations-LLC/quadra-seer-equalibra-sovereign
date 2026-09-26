@@ -26,6 +26,7 @@ import hashlib
 import json
 import re
 import base64
+import secrets
 from importlib import import_module
 import redis
 import numpy as np
@@ -275,6 +276,12 @@ ATLANTEAN_BIND_HOST: str = (os.getenv('ATLANTEAN_BIND_HOST') or '127.0.0.1').str
 # Use ATLANTEAN_PORT only — PORT is consumed by server.js and must not be shared.
 ATLANTEAN_BIND_PORT: int = int(os.getenv('ATLANTEAN_PORT') or '5001')
 
+if ATLANTEAN_BIND_HOST not in {'127.0.0.1', 'localhost', '::1'} and not ATLANTEAN_API_TOKEN:
+    raise RuntimeError(
+        'ATLANTEAN_API_TOKEN must be set when binding the backend to a non-loopback address. '
+        'This prevents unauthenticated access on exposed interfaces.'
+    )
+
 # Per-IP rate limiting for the streaming endpoint.
 _stream_rl_calls: Dict[str, list] = {}
 _stream_rl_lock = __import__('threading').Lock()
@@ -518,13 +525,14 @@ def _enforce_ledger_gate_or_raise(
     }
 
 app = Flask(__name__)
-SESSION_SECRET = os.getenv('ATLANTEAN_SESSION_SECRET') or os.getenv('SECRET_KEY') or 'dev-only-change-me'
+SESSION_SECRET = (os.getenv('ATLANTEAN_SESSION_SECRET') or os.getenv('SECRET_KEY') or '').strip()
+if not SESSION_SECRET or SESSION_SECRET == 'CHANGE_ME_TO_A_RANDOM_SECRET' or SESSION_SECRET == 'dev-only-change-me':
+    SESSION_SECRET = secrets.token_hex(32)
+    print('⚠️  ATLANTEAN_SESSION_SECRET missing or placeholder; generated ephemeral secret for this process')
 app.config['SECRET_KEY'] = SESSION_SECRET
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', '0') == '1'
-if SESSION_SECRET == 'dev-only-change-me':
-    print("⚠️  ATLANTEAN_SESSION_SECRET is not set; using development fallback secret")
 
 # --- CORS Configuration ---
 # Restrict CORS to specific origins (development and production)

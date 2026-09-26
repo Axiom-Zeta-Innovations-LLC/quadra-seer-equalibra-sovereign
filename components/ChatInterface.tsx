@@ -60,7 +60,7 @@ const ChatInterface: React.FC = () => {
   const [isProfileModalOpen, setProfileModalOpen] = useState(false);
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>(ThinkingMode.STANDARD);
   const [audioState, setAudioState] = useState(getAudioState());
-  const [sidebarTab, setSidebarTab] = useState<'telemetry' | 'operations' | 'archives' | 'hardware' | 'workspace'>('telemetry');
+  const [sidebarTab, setSidebarTab] = useState<'telemetry' | 'status' | 'operations' | 'archives' | 'hardware' | 'workspace'>('telemetry');
   const [ttsVoice, setTtsVoiceState] = useState<TtsVoice>(getTtsVoice());
   const [convoId, setConvoId] = useState<string>(createAndSetStableSessionId());
   const [simulationWrites, setSimulationWrites] = useState(0);
@@ -908,10 +908,11 @@ const ChatInterface: React.FC = () => {
       <aside className="w-[380px] h-full flex-shrink-0 border-r hidden xl:flex flex-col bg-black/40 backdrop-blur-xl z-10" style={{ borderColor: 'var(--color-border)', contain: 'layout' }}>
         <div className="flex border-b border-white/5 bg-black/20 p-1">
           <button 
-            onClick={() => setSidebarTab('telemetry')}
-            className={`flex-1 py-3 text-[9px] font-bold uppercase tracking-[0.2em] rounded-lg transition-all ${sidebarTab === 'telemetry' ? 'bg-white/10 text-[var(--color-primary)]' : 'text-gray-500 hover:text-gray-300'}`}
+            onClick={() => setSidebarTab('status')}
+            aria-label="Status"
+            className={`flex-1 py-3 text-[9px] font-bold uppercase tracking-[0.2em] rounded-lg transition-all ${sidebarTab === 'status' ? 'bg-white/10 text-[var(--color-primary)]' : 'text-gray-500 hover:text-gray-300'}`}
           >
-            Diagnostics
+            Status
           </button>
           <button 
             onClick={() => setSidebarTab('operations')}
@@ -946,6 +947,16 @@ const ChatInterface: React.FC = () => {
             recallSimulations={recallSimulations}
             simulationWrites={simulationWrites}
           />
+        ) : sidebarTab === 'status' ? (
+          <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
+            <AtlanteanStatusPanel
+              status={status}
+              fields={fields}
+              isLoading={atlanteanLoading}
+              isRefreshingFields={isRefreshingFields}
+              refreshTelemetry={refreshTelemetry}
+            />
+          </div>
         ) : sidebarTab === 'operations' ? (
           <div className="flex-1 overflow-y-auto p-3 scrollbar-hide">
             <OperationsPanel
