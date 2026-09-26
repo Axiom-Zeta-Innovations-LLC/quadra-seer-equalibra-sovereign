@@ -27,6 +27,10 @@ RUN npm ci --include=dev
 # Copy application code
 COPY . .
 
+# API token for the browser client. Vite bakes VITE_* vars into the bundle at
+# build time, so this must be an ARG (compose passes it via build.args).
+ARG VITE_API_TOKEN
+
 # Build application
 RUN npm run build
 
@@ -36,6 +40,9 @@ RUN npm prune --omit=dev
 
 # Final stage for app image
 FROM nginx
+
+# Custom nginx config: SPA fallback + /api + /health proxy to the backend
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy built application
 COPY --from=build /app/dist /usr/share/nginx/html
