@@ -1,0 +1,22 @@
+# On-my-machine mode: everything loopback-only, nothing reachable from the LAN.
+# Requires Docker Compose >= 2.24 (for !override). Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+# or simply: ./scripts/stack.sh local up
+#
+# Ollama is expected on the HOST (the base compose already points the backend
+# at host.docker.internal:11434): run `ollama serve` and pull your model first.
+services:
+  redis:
+    ports: !override
+      - "127.0.0.1:6379:6379"
+
+  backend:
+    ports: !override
+      - "127.0.0.1:5001:5001"
+    environment:
+      SESSION_COOKIE_SECURE: "0"
+      ALLOWED_ORIGINS: "http://localhost:5000,http://127.0.0.1:5000"
+
+  frontend:
+    ports: !override
+      - "127.0.0.1:5000:80"

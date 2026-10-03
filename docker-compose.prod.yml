@@ -1,0 +1,33 @@
+# VPS / production mode: only the frontend nginx is reachable, and only from
+# the host's loopback — put a TLS reverse proxy (Caddy/nginx) on the host in
+# front of it and terminate HTTPS there. Backend and Redis are NOT published;
+# they are reachable only inside the compose network (the frontend proxies
+# /api and /health to the backend).
+# Requires Docker Compose >= 2.24 (for !override). Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# or simply: ./scripts/stack.sh vps up
+#
+# Set SEER_DOMAIN in .env.vps (e.g. seer.example.com) before first start.
+services:
+  redis:
+    ports: !override []
+
+  backend:
+    ports: !override []
+    environment:
+      SESSION_COOKIE_SECURE: "1"
+      ALLOWED_ORIGINS: "https://${SEER_DOMAIN:?SEER_DOMAIN must be set in .env.vps}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    ports: !override
+      - "127.0.0.1:5000:80"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
