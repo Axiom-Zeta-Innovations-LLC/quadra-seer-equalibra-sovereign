@@ -24,6 +24,16 @@ jobs:
       - name: Check out repo
         uses: actions/checkout@v4
 
+      # The backend build pulls the multi-GB torch dependency tree; a stock
+      # runner's ~14 GB free disk is not enough once Ollama + both images are
+      # on it (the first smoke run died with Errno 28 in pip). Free the
+      # preinstalled toolchains we do not use.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker image prune -af || true
+          df -h
+
       - name: Show Docker / Compose versions
         run: |
           docker version
