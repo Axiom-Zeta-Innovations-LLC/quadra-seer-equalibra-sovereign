@@ -32,10 +32,10 @@ ensure_env() {
     echo "ATLANTEAN_API_TOKEN=$token"
     echo "VITE_API_TOKEN=$token"
     echo "ATLANTEAN_SESSION_SECRET=$session"
-    [ "$MODE" = vps ] && echo "SEER_DOMAIN=seer.example.com"
+    if [ "$MODE" = vps ]; then echo "SEER_DOMAIN=seer.example.com"; fi
   } > "$ENV_FILE"
   chmod 600 "$ENV_FILE" 2>/dev/null || true
-  [ "$MODE" = vps ] && echo "NOTE: edit SEER_DOMAIN in $ENV_FILE to your real hostname before exposing the site."
+  if [ "$MODE" = vps ]; then echo "NOTE: edit SEER_DOMAIN in $ENV_FILE to your real hostname before exposing the site."; fi
 }
 
 compose() { docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" "$@"; }
@@ -57,8 +57,8 @@ case "$ACTION" in
     compose up -d --build
     wait_healthy
     echo "Quadra-Seer ($MODE) is up: http://127.0.0.1:5000"
-    [ "$MODE" = local ] && echo "Tip: Ollama runs on the host — 'ollama serve' + 'ollama pull llama3.1:8b-instruct-q4_K_M'."
-    [ "$MODE" = vps ] && echo "Next: point your TLS reverse proxy (Caddy/nginx) at 127.0.0.1:5000 — see DEPLOYMENT.md."
+    if [ "$MODE" = local ]; then echo "Tip: Ollama runs on the host — 'ollama serve' + 'ollama pull llama3.1:8b-instruct-q4_K_M'."; fi
+    if [ "$MODE" = vps ]; then echo "Next: point your TLS reverse proxy (Caddy/nginx) at 127.0.0.1:5000 — see DEPLOYMENT.md."; fi
     ;;
   down)   compose down ;;
   logs)   compose logs -f --tail 100 ;;
