@@ -1,6 +1,6 @@
 
 import { Message } from '../types';
-import { resolveAtlanteanApiBaseOrThrow, getStableSessionId } from './atlanteanService';
+import { resolveAtlanteanApiBaseOrThrow, getStableSessionId, getAtlanteanAuthHeaders } from './atlanteanService';
 
 export const getSummary = async (messages: Message[]): Promise<string> => {
     if (messages.length < 2) {
@@ -12,7 +12,7 @@ export const getSummary = async (messages: Message[]): Promise<string> => {
         const historyText = messages.map(m => `${m.role}: ${m.content}`).join('\n');
         const response = await fetch(`${atlanteanApiBase}/query`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...getAtlanteanAuthHeaders() },
             body: JSON.stringify({
                 input: `Summarize this conversation in one concise sentence:\n\n${historyText}`,
                 session_id: getStableSessionId(),
