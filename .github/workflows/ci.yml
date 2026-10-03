@@ -44,3 +44,20 @@ jobs:
 
       - name: Run Python test suite
         run: pytest -q
+
+  docker-builds:
+    name: Docker builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Build frontend image (Dockerfile)
+        run: docker build -f Dockerfile --build-arg VITE_API_TOKEN=ci-build-token -t quadra-seer-frontend:ci .
+
+      - name: Build backend image (Dockerfile.python)
+        run: docker build -f Dockerfile.python -t quadra-seer-backend:ci .
+
+      - name: Build legacy sidecar image (Dockerfile.backend)
+        run: docker build -f Dockerfile.backend -t quadra-seer-sidecar:ci .
