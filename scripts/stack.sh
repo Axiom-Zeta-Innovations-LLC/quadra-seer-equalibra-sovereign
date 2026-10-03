@@ -42,7 +42,7 @@ compose() { docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" "$@"; }
 
 wait_healthy() {
   local url="http://127.0.0.1:5000/health" i
-  for i in $(seq 1 36); do
+  for i in $(seq 1 60); do
     if curl -fsS "$url" >/dev/null 2>&1; then echo "Stack healthy: $url"; return 0; fi
     sleep 5
   done
