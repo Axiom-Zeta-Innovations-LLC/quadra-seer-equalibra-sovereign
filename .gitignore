@@ -35,6 +35,7 @@ quadra-seer-intelligence.zip
 *.sw?
 .env.local
 .env*.local
+.env.vps
 backend.log
 backend_err.log
 pip_install.log
