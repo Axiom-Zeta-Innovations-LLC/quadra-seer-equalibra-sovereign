@@ -7,14 +7,15 @@ WORKDIR /app
 # Install system dependencies.
 # ffmpeg    — audio format decoding for faster-whisper (WebM, OGG, MP4, etc.)
 # libsndfile1 — libsndfile support used by audio processing libraries
-# gcc, g++, cmake, libstdc++-dev — required to build lancedb native extensions
+# gcc, g++, cmake, libstdc++-14-dev — required to build lancedb native extensions
+# (libstdc++-dev is a virtual package with no install candidate on Debian trixie)
 # libgomp1  — OpenMP runtime used by sentence-transformers / PyTorch
 # poppler-utils — pdftotext fallback used by pdfplumber
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     cmake \
-    libstdc++-dev \
+    libstdc++-14-dev \
     libgomp1 \
     ffmpeg \
     libsndfile1 \
