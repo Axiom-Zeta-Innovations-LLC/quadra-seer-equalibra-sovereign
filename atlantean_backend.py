@@ -1725,7 +1725,11 @@ Do not ask the user to upload the same document again unless every attachment is
     )
     provider_selected = str(provider_resolution.get('provider_selected', 'local'))
     provider_capability = provider_resolution.get('capability', {})
-    cloud_policy_decision = _evaluate_cloud_policy(cloud_escalation_consent)
+    cloud_policy_decision = evaluate_cloud_escalation(
+        allow_cloud_escalation=ALLOW_CLOUD_ESCALATION,
+        require_cloud_escalation_consent=REQUIRE_CLOUD_ESCALATION_CONSENT,
+        explicit_consent=cloud_escalation_consent,
+    )
     orchestration_strategy = select_orchestration_strategy(
         provider_capability,
         cloud_escalation_allowed=bool(cloud_policy_decision.get('allowed', False)),
