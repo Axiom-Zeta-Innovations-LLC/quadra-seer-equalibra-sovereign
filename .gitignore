@@ -39,3 +39,6 @@ quadra-seer-intelligence.zip
 backend.log
 backend_err.log
 pip_install.log
+
+# License signing keys — NEVER commit the private key
+scripts/license/*.pem
