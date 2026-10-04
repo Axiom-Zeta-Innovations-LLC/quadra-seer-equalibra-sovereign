@@ -10,6 +10,10 @@ import fetch from 'node-fetch';
 dotenv.config({ path: '.env.local' });
 dotenv.config();
 
+// Quadra-Seer Sovereign licensing: no-op unless QS_LICENSE_REQUIRED=1.
+import { assertLicensed } from './scripts/license/check.mjs';
+assertLicensed();
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 // NODE_API_PORT is the dedicated var; PORT is kept for legacy compatibility.

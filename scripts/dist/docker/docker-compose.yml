@@ -1,0 +1,69 @@
+# Quadra-Seer Sovereign — licensed distribution bundle
+# Frontend: prebuilt nginx image (no source). Backend: compiled Python (no source).
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.python
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5000,http://127.0.0.1:5000}
+      ATLANTEAN_SESSION_SECRET: ${ATLANTEAN_SESSION_SECRET:?set in .env}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
+      ATLANTEAN_LLM_PROVIDER: ${ATLANTEAN_LLM_PROVIDER:-local}
+      LOCAL_LLM_BACKEND: ${LOCAL_LLM_BACKEND:-ollama}
+      LOCAL_LLM_URL: ${LOCAL_LLM_URL:-http://host.docker.internal:11434/api/generate}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.1:8b-instruct-q4_K_M}
+      ALLOW_OUTBOUND_NETWORK: ${ALLOW_OUTBOUND_NETWORK:-0}
+      ALLOW_CLOUD_ESCALATION: ${ALLOW_CLOUD_ESCALATION:-0}
+      ATLANTEAN_API_TOKEN: ${ATLANTEAN_API_TOKEN:?set in .env}
+      # License enforcement (do not disable)
+      QS_LICENSE_REQUIRED: "1"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - piper_voices_data:/app/voices
+      - vault_data:/app/vault_data
+      # Activation certificate (created by: node scripts/license/activate.mjs --license "QS1…")
+      - ${QS_ACTIVATION_FILE:-./.qs-activation.json}:/app/.qs-activation.json:ro
+    ports:
+      - "5001:5001"
+    mem_limit: 6g
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "127.0.0.1:5000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  piper_voices_data:
+  vault_data:

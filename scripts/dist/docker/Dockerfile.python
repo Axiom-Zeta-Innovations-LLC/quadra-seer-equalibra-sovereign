@@ -1,0 +1,23 @@
+# Licensed bundle — Python backend (compiled .pyc, no .py source)
+FROM python:3.12-slim
+RUN apt-get update && apt-get install -y \
+    gcc g++ cmake libstdc++-14-dev libgomp1 ffmpeg libsndfile1 poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY docker/requirements.txt ./
+RUN grep -v '^torch==' requirements.txt > /tmp/requirements.no_torch.txt \
+    && pip install --no-cache-dir -r /tmp/requirements.no_torch.txt \
+    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.2.0
+COPY python/ ./
+COPY license-public.pem ./
+RUN mkdir -p /app/vault_data/vector_index /app/vault_data/journal /app/vault_data/quarantine
+RUN useradd --system --no-create-home --shell /usr/sbin/nologin vault \
+    && chown -R vault:vault /app
+USER vault
+ENV ALLOW_OUTBOUND_NETWORK=0 \
+    ATLANTEAN_JOURNAL_DIR=/app/vault_data/journal \
+    ATLANTEAN_VECTOR_DB_PATH=/app/vault_data/vector_index \
+    QS_LICENSE_REQUIRED=1
+EXPOSE 5001
+# License check runs first; then the compiled backend entry point.
+CMD ["python", "-c", "import license_check; license_check.assert_licensed(); import runpy; runpy.run_path('atlantean_backend.pyc')"]

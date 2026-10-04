@@ -42,3 +42,6 @@ pip_install.log
 
 # License signing keys — NEVER commit the private key
 scripts/license/*.pem
+
+# Distribution build output
+dist-package/
