@@ -9,7 +9,7 @@
  *   node scripts/license/activate.mjs --license "QS1...."
  *
  * Env:
- *   QS_ACTIVATION_URL   activation server (default https://license.axiomzetainnovations.com)
+ *   QS_ACTIVATION_URL   activation server (default https://quadra-seer-licensing.onrender.com)
  *   QS_ACTIVATION_FILE  where to save the cert (default ./.qs-activation.json)
  */
 import { writeFileSync } from "node:fs";
@@ -23,7 +23,7 @@ const flag = (name) => {
 const die = (msg) => { console.error(`error: ${msg}`); process.exit(1); };
 
 const license = flag("--license") || process.env.QS_LICENSE_KEY || die("--license is required");
-const server = (process.env.QS_ACTIVATION_URL || "https://license.axiomzetainnovations.com").replace(/\/$/, "");
+const server = (process.env.QS_ACTIVATION_URL || "https://quadra-seer-licensing.onrender.com").replace(/\/$/, "");
 const outFile = process.env.QS_ACTIVATION_FILE || "./.qs-activation.json";
 const fingerprint = machineFingerprint();
 
