@@ -4189,6 +4189,15 @@ if __name__ == '__main__':
 
     get_bridge()
 
+    # Log full tracebacks for 500 errors (debug=False silences them by default)
+    import logging
+    import traceback
+    @app.errorhandler(500)
+    def _log_500(e):
+        traceback.print_exc()
+        logging.getLogger().error("500 error: %s", e, exc_info=True)
+        return {'error': 'Internal server error'}, 500
+
     app.run(
         host=ATLANTEAN_BIND_HOST,
         port=ATLANTEAN_BIND_PORT,
