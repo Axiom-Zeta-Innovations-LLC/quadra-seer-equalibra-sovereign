@@ -1504,6 +1504,28 @@ def query():
                         extracted_text = decoded_bytes.decode('utf-8', errors='ignore')
                     except Exception:
                         extracted_text = ''
+                elif ext == 'pdf' or mime_type == 'application/pdf':
+                    # Server-side PDF text extraction (pypdf)
+                    try:
+                        import pypdf
+                        pdf_bytes = base64.b64decode(content_b64, validate=False)
+                        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+                        extracted_text = '\n'.join(
+                            (page.extract_text() or '') for page in reader.pages
+                        ).strip()
+                    except Exception:
+                        extracted_text = ''
+                elif ext in ('docx',) or mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+                    # Server-side DOCX text extraction (python-docx)
+                    try:
+                        import docx
+                        docx_bytes = base64.b64decode(content_b64, validate=False)
+                        doc = docx.Document(io.BytesIO(docx_bytes))
+                        extracted_text = '\n'.join(
+                            p.text for p in doc.paragraphs
+                        ).strip()
+                    except Exception:
+                        extracted_text = ''
 
             normalized_files.append({
                 'name': name,
