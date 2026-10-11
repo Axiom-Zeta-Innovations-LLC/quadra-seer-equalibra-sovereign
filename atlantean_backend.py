@@ -702,8 +702,12 @@ def _append_telemetry_event(event_type: str, payload: Dict[str, Any]) -> None:
 def _load_cold_items(bridge: 'AtlanteanQuadraBridge') -> List[Dict[str, Any]]:
     """Load all cold-memory items from Redis for retention planning."""
     items: List[Dict[str, Any]] = []
-    redis_conn = bridge.cold_memory.redis
-    item_keys = redis_conn.keys('item:*')
+    try:
+        redis_conn = bridge.cold_memory.redis
+        item_keys = redis_conn.keys('item:*')
+    except Exception:
+        # Redis unavailable — skip retention planning, items stay in memory
+        return items
     for key in item_keys:
         key_text = key.decode('utf-8') if isinstance(key, bytes) else str(key)
         item_id = key_text.split(':', 1)[1] if ':' in key_text else key_text
