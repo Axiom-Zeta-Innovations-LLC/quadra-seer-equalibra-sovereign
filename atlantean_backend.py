@@ -2334,33 +2334,41 @@ def learning_event():
 @app.route('/api/atlantean/simulation/store', methods=['POST'])
 def store_simulation():
     """Store simulation in cold memory."""
-    data = request.json or {}
-    session_id = _resolve_session_id()
-    simulation = data.get('simulation')
-    confidence = data.get('confidence', 0.5)
-    
-    if not simulation:
-        return jsonify({'error': 'No simulation data'}), 400
-    
-    b = get_bridge_for_session(session_id)
-    hrm = get_hrm_for_session(session_id)
-    b.store_simulation(simulation, confidence, session_id=session_id)
-    retention_report = _enforce_memory_retention(session_id, b)
-    # Capture HRM snapshot AFTER store operation, which modifies hot memory
-    hrm_snapshot = hrm.snapshot()
-    _save_bridge_to_redis(session_id, b)
-    _append_signed_event(
-        session_id=session_id,
-        bridge=b,
-        event_type='simulation_store',
-        payload={
-            'scenario': simulation.get('scenario', 'unknown') if isinstance(simulation, dict) else 'unknown',
-            'confidence': float(confidence),
-        },
-        hrm_snapshot=hrm_snapshot,
-    )
-    
-    return jsonify({'success': True, 'session_id': session_id, 'retention': retention_report})
+    import traceback
+    try:
+        data = request.json or {}
+        session_id = _resolve_session_id()
+        simulation = data.get('simulation')
+        confidence = data.get('confidence', 0.5)
+        
+        if not simulation:
+            return jsonify({'error': 'No simulation data'}), 400
+        
+        b = get_bridge_for_session(session_id)
+        hrm = get_hrm_for_session(session_id)
+        b.store_simulation(simulation, confidence, session_id=session_id)
+        retention_report = _enforce_memory_retention(session_id, b)
+        # Capture HRM snapshot AFTER store operation, which modifies hot memory
+        hrm_snapshot = hrm.snapshot()
+        _save_bridge_to_redis(session_id, b)
+        _append_signed_event(
+            session_id=session_id,
+            bridge=b,
+            event_type='simulation_store',
+            payload={
+                'scenario': simulation.get('scenario', 'unknown') if isinstance(simulation, dict) else 'unknown',
+                'confidence': float(confidence),
+            },
+            hrm_snapshot=hrm_snapshot,
+        )
+        
+        return jsonify({'success': True, 'session_id': session_id, 'retention': retention_report})
+    except Exception as e:
+        print("=" * 60)
+        print("SIMULATION STORE FAILED:")
+        traceback.print_exc()
+        print("=" * 60)
+        return jsonify({'error': f'Simulation store failed: {e}'}), 500
 
 
 @app.route('/api/atlantean/simulation/recall', methods=['POST'])
