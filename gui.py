@@ -154,10 +154,11 @@ def recall():
         'success': True,
         'results': [
             {
-                'content': item.content,
-                'relevance': item.metadata.get('relevance', 0)
+                'content': m.item.content,
+                'relevance': m.item.metadata.get('relevance', 0),
+                'retrieval_score': m.retrieval_score,
             }
-            for item in results[:5]
+            for m in results[:5]
         ]
     })
 
