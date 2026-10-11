@@ -134,8 +134,11 @@ class VectorColdMemory(ColdMemoryBackend):
         self.vectors[item.id] = vector
         self.items[item.id] = item
 
-        self._ensure_manifest(manifest_id)
-        self._add_item_to_manifest(manifest_id, item.id)
+        try:
+            self._ensure_manifest(manifest_id)
+            self._add_item_to_manifest(manifest_id, item.id)
+        except Exception as e:
+            print(f"Redis unavailable, keeping item in memory only: {e}")
         
         # Save to Redis
         try:
@@ -302,7 +305,11 @@ class VectorColdMemory(ColdMemoryBackend):
     def list_manifests(self, include_detached: bool = False) -> List[Dict[str, Any]]:
         """List known manifests with optional detached entries."""
         rows = []
-        for key in self.redis.keys('manifest:*'):
+        try:
+            manifest_keys = self.redis.keys('manifest:*')
+        except Exception:
+            return rows
+        for key in manifest_keys:
             raw = self._read_json(key)
             if not raw:
                 continue
