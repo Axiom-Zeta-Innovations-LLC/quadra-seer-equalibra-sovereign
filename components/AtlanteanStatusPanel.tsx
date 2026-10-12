@@ -186,7 +186,7 @@ export default function AtlanteanStatusPanel({
         <div className="flex items-center gap-3 mb-2">
           <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
           <h3 className="text-sm font-bold text-purple-300 uppercase tracking-wider">
-            Atlantean Core Active
+            PhaseLock Coherence
           </h3>
           <span
             className={`ml-auto px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider border ${
@@ -215,7 +215,7 @@ export default function AtlanteanStatusPanel({
           </span>
         </div>
         <div className="text-xs text-gray-400">
-          Intelligence v{status.version} • {status.device_id.slice(0, 12)}...
+          Axiom Zeta • PhaseLock v{status.version} • {status.device_id.slice(0, 12)}...
         </div>
         {isRefreshingFields && (
           <div className="mt-2 text-[9px] font-mono uppercase tracking-wider text-cyan-300">
@@ -229,8 +229,9 @@ export default function AtlanteanStatusPanel({
 
       {/* Intelligence Fields */}
       <div className="space-y-3">
-        <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-          Intelligence Fields
+        <div className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between">
+          <span>PhaseLock Field Topology</span>
+          <span className="text-[9px] font-mono text-purple-400/80">Topological Lock</span>
         </div>
 
         {fields && (
