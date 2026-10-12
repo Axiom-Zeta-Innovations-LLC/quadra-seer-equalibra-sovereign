@@ -1487,12 +1487,14 @@ def query():
     text_exts = {
         'txt', 'md', 'csv', 'json', 'xml', 'yaml', 'yml', 'log', 'py', 'js', 'ts', 'tsx', 'jsx', 'html', 'css'
     }
+    print(f"[DEBUG] Received {len(files) if isinstance(files, list) else 0} files")
     if isinstance(files, list):
         for raw in files[:8]:
             if not isinstance(raw, dict):
                 continue
             name = str(raw.get('name', 'unnamed'))
             mime_type = str(raw.get('type', 'application/octet-stream'))
+            print(f"[DEBUG] File: {name}, type: {mime_type}, has_content: {bool(raw.get('content'))}, has_extractedText: {bool(raw.get('extractedText'))}")
             extracted_text = str(raw.get('extractedText', '') or '')
             content_b64 = str(raw.get('content', '') or '')
 
