@@ -168,6 +168,13 @@ LOCAL_LLM_URL = os.getenv('LOCAL_LLM_URL', 'http://127.0.0.1:11434/api/generate'
 LOCAL_LLM_MODEL = os.getenv('LOCAL_LLM_MODEL', 'qwen2.5:3b').strip()
 LOCAL_LLM_BACKEND = (os.getenv('LOCAL_LLM_BACKEND') or 'ollama').strip().lower()
 
+# Sentinel integration: drift detection/stabilization for LLM outputs.
+# When enabled and the Sentinel gateway is reachable, each LLM response
+# is passed through Sentinel's /v1/stabilize before reaching the user.
+SENTINEL_ENABLED = (os.getenv('SENTINEL_ENABLED') or 'true').strip().lower() in ('1', 'true', 'yes')
+SENTINEL_URL = os.getenv('SENTINEL_URL', 'http://127.0.0.1:8000').strip()
+SENTINEL_API_KEY = os.getenv('SENTINEL_API_KEY', 'replace-me').strip()
+
 # Runtime-overridable config (set via /api/atlantean/config/ollama without restart).
 _runtime_ollama_url: str = ''
 
@@ -888,6 +895,63 @@ def _contains_internal_status_language(text: str) -> bool:
     if not text:
         return False
     return any(pattern.search(text) for pattern in _INTERNAL_STATUS_PATTERNS)
+
+
+def _sentinel_stabilize(text: str, session_id: str) -> tuple[str, dict]:
+    """Pass LLM output through Sentinel for drift detection/stabilization.
+
+    Returns (possibly stabilized text, diagnostics dict).
+    Gracefully returns original text if Sentinel is disabled or unreachable.
+    """
+    diagnostics = {'sentinel_used': False}
+    if not SENTINEL_ENABLED or not text:
+        return text, diagnostics
+
+    try:
+        import uuid
+        import requests
+
+        # Build a simple 24-point metric window from text features.
+        # Sentinel expects 24 floats; we derive basic signal characteristics.
+        words = text.split()
+        sentences = text.count('.') + text.count('!') + text.count('?') + 1
+        avg_word_len = sum(len(w) for w in words) / max(len(words), 1)
+        # Create a 24-point window with normalized text features
+        metric_window = [
+            float(len(words) % 100) / 100.0,
+            float(sentences % 50) / 50.0,
+            min(avg_word_len / 10.0, 1.0),
+        ] * 8  # 24 points
+
+        resp = requests.post(
+            f"{SENTINEL_URL}/v1/stabilize",
+            json={
+                'tenant_id': session_id[:32] if session_id else 'default',
+                'request_id': str(uuid.uuid4()),
+                'text': text,
+                'metric_window': metric_window,
+            },
+            headers={'X-API-Key': SENTINEL_API_KEY, 'Content-Type': 'application/json'},
+            timeout=10.0,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            diagnostics = {
+                'sentinel_used': True,
+                'drift_score': data.get('drift_score'),
+                'risk_level': data.get('risk_level'),
+                'actions': data.get('actions', []),
+            }
+            # Use stabilized text if provided, otherwise original
+            stabilized = data.get('stabilized_text') or data.get('corrected_text')
+            if stabilized:
+                return stabilized, diagnostics
+        else:
+            diagnostics['error'] = f"HTTP {resp.status_code}"
+    except Exception as e:
+        diagnostics['error'] = str(e)[:100]
+
+    return text, diagnostics
 
 
 def _sanitize_model_output(text: str, user_input: str) -> str:
@@ -1950,6 +2014,13 @@ Current field stats:
     if not response_text:
         response_text = "I processed your request, but no response text was generated."
     response_text = _sanitize_model_output(response_text, user_input)
+
+    # Sentinel: stabilize LLM output for drift before delivering to user.
+    sentinel_diagnostics = {}
+    try:
+        response_text, sentinel_diagnostics = _sentinel_stabilize(response_text, session_id)
+    except Exception:
+        pass
 
     # Persist both sides of this interaction into cold memory.
     try:
