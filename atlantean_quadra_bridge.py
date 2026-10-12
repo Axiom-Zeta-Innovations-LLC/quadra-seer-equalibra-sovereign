@@ -524,7 +524,35 @@ class AtlanteanQuadraBridge:
                 except Exception:
                     pass
         except Exception as e:
-            print(f'Failed to list simulations from Redis: {e}')
+            print(f'Redis unavailable, listing simulations from memory: {e}')
+            # Fall back to in-memory items
+            for item_id, item in self.cold_memory.items.items():
+                meta = item.metadata
+                if meta.get('tombstone'):
+                    continue
+                if meta.get('type') != 'simulation':
+                    continue
+                stored_session_id = meta.get('session_id')
+                if session_id and stored_session_id and stored_session_id != session_id:
+                    continue
+                try:
+                    sim = json.loads(item.content) if isinstance(item.content, str) else item.content
+                    ts_raw = meta.get('timestamp', '')
+                    try:
+                        from datetime import datetime as _dt
+                        ts_ms = int(_dt.fromisoformat(ts_raw).timestamp() * 1000)
+                    except Exception:
+                        ts_ms = int(datetime.now().timestamp() * 1000)
+                    simulations.append({
+                        'scenario': meta.get('scenario', sim.get('scenario', 'unknown') if isinstance(sim, dict) else 'unknown'),
+                        'confidence': meta.get('retrieval_weight', meta.get('relevance', 0.5)),
+                        'learning_effect': meta.get('learning_weight', meta.get('relevance', 0.5)),
+                        'timestamp': ts_ms,
+                        'session_id': stored_session_id,
+                        'content': sim,
+                    })
+                except Exception:
+                    pass
         # Sort newest first
         simulations.sort(key=lambda x: x['timestamp'], reverse=True)
         return simulations[:limit]
