@@ -889,7 +889,7 @@ const ChatInterface: React.FC = () => {
               Diagnostics now include live field heatmaps, sync metadata, and exportable intelligence state. Use the sidebar tabs to navigate telemetry, status, and archives.
             </p>
             <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px] font-mono uppercase tracking-wider text-gray-300">
-              <div className="rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2">PhaseLock: Field Coherence</div>
+              <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2">Status: Sync + field trends</div>
               <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">Archives: Snapshot + field view</div>
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">Profile: device sync tools</div>
             </div>
@@ -909,10 +909,10 @@ const ChatInterface: React.FC = () => {
         <div className="flex border-b border-white/5 bg-black/20 p-1">
           <button 
             onClick={() => setSidebarTab('status')}
-            aria-label="PhaseLock"
+            aria-label="Status"
             className={`flex-1 py-3 text-[9px] font-bold uppercase tracking-[0.2em] rounded-lg transition-all ${sidebarTab === 'status' ? 'bg-white/10 text-[var(--color-primary)]' : 'text-gray-500 hover:text-gray-300'}`}
           >
-            PhaseLock
+            Status
           </button>
           <button 
             onClick={() => setSidebarTab('operations')}
@@ -1014,8 +1014,8 @@ const ChatInterface: React.FC = () => {
                                 Learn {learningCapacityPct.toFixed(1)}%
                               </span>
                             )}
-                            <span className="ml-1 rounded-full border border-purple-400/30 bg-purple-500/10 px-2 py-0.5 text-[8px] font-mono uppercase tracking-wider text-purple-300">
-                              PhaseLock: Φ {fields?.Phi ? fields.Phi.toFixed(2) : '0.42'}
+                            <span className="ml-2 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-2 py-0.5 text-[8px] font-mono uppercase tracking-wider text-cyan-200">
+                              {isSyncing ? 'Sync: Running' : 'Sync: Ready'}
                             </span>
                         </div>
                     </div>
