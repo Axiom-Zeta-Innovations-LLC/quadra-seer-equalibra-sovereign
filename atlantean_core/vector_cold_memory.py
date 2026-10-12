@@ -34,7 +34,10 @@ class VectorColdMemory(ColdMemoryBackend):
         self._load_from_redis()
 
     def _read_json(self, key: str) -> Optional[Dict[str, Any] | List[Any]]:
-        raw = self.redis.get(key)
+        try:
+            raw = self.redis.get(key)
+        except Exception:
+            return None
         if not raw:
             return None
 
@@ -52,16 +55,22 @@ class VectorColdMemory(ColdMemoryBackend):
 
         # Lazy migration: plaintext rows are rewritten encrypted if encryption is enabled.
         if self.encryptor.enabled and isinstance(raw, str) and not was_encrypted:
-            self.redis.set(key, self.encryptor.encrypt_text(plaintext))
+            try:
+                self.redis.set(key, self.encryptor.encrypt_text(plaintext))
+            except Exception:
+                pass
 
         return parsed
 
     def _write_json(self, key: str, payload: Dict[str, Any] | List[Any]):
         raw = json.dumps(payload)
-        if self.encryptor.enabled:
-            self.redis.set(key, self.encryptor.encrypt_text(raw))
-            return
-        self.redis.set(key, raw)
+        try:
+            if self.encryptor.enabled:
+                self.redis.set(key, self.encryptor.encrypt_text(raw))
+                return
+            self.redis.set(key, raw)
+        except Exception:
+            pass
 
     def _load_from_redis(self):
         """Load vectors and items from Redis (excluding tombstoned items from active index)."""
