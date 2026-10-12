@@ -165,7 +165,7 @@ else:
 
 ATLANTEAN_LLM_PROVIDER = (os.getenv('ATLANTEAN_LLM_PROVIDER') or 'local').strip().lower()
 LOCAL_LLM_URL = os.getenv('LOCAL_LLM_URL', 'http://127.0.0.1:11434/api/generate').strip()
-LOCAL_LLM_MODEL = os.getenv('LOCAL_LLM_MODEL', 'llama3.1:8b-instruct-q4_K_M').strip()
+LOCAL_LLM_MODEL = os.getenv('LOCAL_LLM_MODEL', 'qwen2.5:3b').strip()
 LOCAL_LLM_BACKEND = (os.getenv('LOCAL_LLM_BACKEND') or 'ollama').strip().lower()
 
 # Runtime-overridable config (set via /api/atlantean/config/ollama without restart).
