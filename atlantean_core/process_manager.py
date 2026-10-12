@@ -252,7 +252,38 @@ def stop_process(name_or_port: str) -> bool:
 def list_processes() -> List[Dict[str, Any]]:
     """Return status of all managed processes."""
     with _lock:
-        return [p.to_dict() for p in _registry.values()]
+        result = [p.to_dict() for p in _registry.values()]
+    # Also detect independently-running Ollama (not started by us).
+    # If port 11434 is occupied but we have no managed Ollama process,
+    # report it as an external healthy instance so the GUI doesn't
+    # claim "backend not detected" when Ollama is already up.
+    has_managed_ollama = any(
+        p.get('name') == 'ollama' for p in result
+    )
+    if not has_managed_ollama and not is_port_free(11434):
+        # Verify it's actually Ollama by hitting its API
+        ollama_healthy = False
+        try:
+            import urllib.request
+            import json as _json
+            req = urllib.request.Request('http://127.0.0.1:11434/api/tags')
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                ollama_healthy = resp.status == 200
+        except Exception:
+            # Port occupied but not responding as Ollama — still report
+            # it as running (something is there, user can investigate)
+            ollama_healthy = False
+        result.append({
+            "name": "ollama",
+            "pid": None,
+            "running": True,
+            "port": 11434,
+            "uptime_s": None,
+            "healthy": ollama_healthy,
+            "recent_log": [],
+            "external": True,
+        })
+    return result
 
 
 def get_process(name: str) -> Optional[ManagedProcess]:
